@@ -106,28 +106,34 @@ export function slugify(text: string): string {
 /*  Hashing                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const FNV_OFFSET = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const MASK64 = 0xffffffffffffffffn;
-
 /**
- * 64-bit FNV-1a over UTF-16 code units, then a fnv1a/xorshift mix to spread
- * bits. Fast (no crypto dependency, works on mobile), and good enough for
- * change detection — this is *not* a cryptographic hash.
+ * 64-bit content hash over UTF-16 code units, written with 32-bit integer math
+ * only (BigInt is 20–50× slower here, and this runs once per note per export,
+ * over the whole note).
+ *
+ * Two independently seeded FNV-1a passes are concatenated. This is *not* a
+ * cryptographic hash — it exists to detect changes and to key the analysis
+ * cache, where the only requirements are speed, stability across platforms and
+ * a negligible collision rate over a vault-sized key space.
  */
 export function hash64(input: string, seed = 0): string {
-	let h = FNV_OFFSET ^ BigInt(seed >>> 0);
+	let a = (0x811c9dc5 ^ seed) >>> 0;
+	let b = (0xcbf29ce4 ^ Math.imul(seed, 0x9e3779b1)) >>> 0;
 	for (let i = 0; i < input.length; i++) {
-		h ^= BigInt(input.charCodeAt(i) & 0xff);
-		h = (h * FNV_PRIME) & MASK64;
-		h ^= BigInt((input.charCodeAt(i) >> 8) & 0xff);
-		h = (h * FNV_PRIME) & MASK64;
+		const code = input.charCodeAt(i);
+		a = Math.imul(a ^ (code & 0xff), 0x01000193) >>> 0;
+		a = Math.imul(a ^ (code >> 8), 0x01000193) >>> 0;
+		b = Math.imul(b ^ (code & 0xff), 0x85ebca6b) >>> 0;
+		b = Math.imul(b ^ (code >> 8), 0xc2b2ae35) >>> 0;
 	}
-	// xorshift* finalizer
-	h ^= h >> 33n;
-	h = (h * 0xff51afd7ed558ccdn) & MASK64;
-	h ^= h >> 33n;
-	return h.toString(16).padStart(16, "0");
+	// Both halves get a strong finalizer so that short, similar notes diverge.
+	a ^= a >>> 16;
+	a = Math.imul(a, 0x7feb352d) >>> 0;
+	a ^= a >>> 15;
+	b ^= b >>> 15;
+	b = Math.imul(b, 0x2c1b3c6d) >>> 0;
+	b ^= b >>> 12;
+	return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
 /** Content hash for a document body (stable across platforms). */

@@ -95,6 +95,17 @@ Exports/NotebookLM/Vault - 2026-02-01 NotebookLM -v1-part-01.md … -v1-part-50.
 Each part says which volume it belongs to, the index lists the volumes, and the
 manifest records the volume of every part.
 
+### Performance
+
+`npm run bench [notes]` runs the whole engine over a synthetic vault and prints
+the phase breakdown. On a 5 000-note / 4 MB corpus, a full run (analysis,
+deduplication, knowledge layer, rendering) takes a few seconds and peaks well
+under 200 MB of heap: the analyzer never keeps note text, only bounded
+structures. Two hot spots were found and fixed with the benchmark: MinHash used
+to hash every shingle once per signature slot (now two hashes plus double
+hashing), and unresolved links used to scan the whole vault each time (now a
+`basename → path` index).
+
 ### Design constraints
 
 - **Bounded memory**: the analysis of a note is a few hundred bytes (signature, shingle hashes, line identities) — never the text. A 20,000-note vault fits in a few tens of megabytes.

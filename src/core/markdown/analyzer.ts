@@ -278,11 +278,17 @@ function buildSignature(text: string): {
 	const signature = new Uint32Array(SHINGLE_SIZE).fill(0xffffffff);
 	const shingle = new Array<string>(SHINGLE_K);
 	const distinct = new Set<number>();
+	// Two independent hashes per shingle, combined into 32 MinHash slots by
+	// double hashing. Hashing each shingle once per slot — the obvious way —
+	// costs 32 string passes per position and dominates the whole export on a
+	// big vault; this keeps the estimate and costs two passes.
 	for (let i = 0; i + SHINGLE_K <= words.length; i++) {
 		for (let k = 0; k < SHINGLE_K; k++) shingle[k] = words[i + k];
 		const text2 = shingle.join(" ");
+		const h1 = hash32(text2, 0x9e3779b1);
+		const h2 = hash32(text2, 0x85ebca6b) | 1;
 		for (let s = 0; s < SHINGLE_SIZE; s++) {
-			const h = hash32(text2, s * 0x9e3779b1);
+			const h = (h1 + Math.imul(s + 1, h2)) >>> 0;
 			if (h < signature[s]) signature[s] = h;
 		}
 		if (distinct.size <= MAX_EXACT_SHINGLES) distinct.add(hash32(text2, 0x51ed2701));

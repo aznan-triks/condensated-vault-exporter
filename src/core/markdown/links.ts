@@ -130,6 +130,7 @@ export function resolveLinkTarget(
 	target: string,
 	fromPath: string,
 	index: Map<string, string>,
+	byName?: Map<string, string>,
 ): string | undefined {
 	if (target === "") return undefined;
 	const lookup = (candidate: string): string | undefined => index.get(candidate.toLowerCase());
@@ -155,10 +156,35 @@ export function resolveLinkTarget(
 		return candidates.sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
 	}
 
-	// Last resort: any file whose name matches, whatever the folder.
-	const suffix = `/${nameOnly.toLowerCase()}.md`;
+	// Last resort: any file whose name matches, whatever the folder. Without a
+	// name index this is a full scan, which is what a vault full of stale links
+	// would pay for every single one of them.
+	const bare = nameOnly.toLowerCase();
+	if (byName) {
+		const hit = byName.get(bare) ?? byName.get(`${bare}.md`);
+		return hit;
+	}
+	const suffix = `/${bare}.md`;
 	for (const [key, path] of index) {
 		if (key.endsWith(suffix)) return path;
 	}
 	return undefined;
+}
+
+/**
+ * Builds the auxiliary `basename → path` index used by {@link resolveLinkTarget}.
+ * Exported so callers that resolve many links (the graph, the transform pass)
+ * build it once instead of scanning the whole vault per unresolved link.
+ */
+export function buildNameIndex(paths: Iterable<string>): Map<string, string> {
+	const index = new Map<string, string>();
+	const sorted = Array.from(paths).sort((a, b) => a.length - b.length || a.localeCompare(b));
+	for (const path of sorted) {
+		const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+		const dot = name.lastIndexOf(".");
+		const stem = dot <= 0 ? name : name.slice(0, dot);
+		if (!index.has(stem)) index.set(stem, path);
+		if (!index.has(name)) index.set(name, path);
+	}
+	return index;
 }

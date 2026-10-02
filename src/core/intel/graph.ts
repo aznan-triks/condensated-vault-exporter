@@ -7,7 +7,7 @@
  */
 
 import type { DocAnalysis } from "../types";
-import { resolveLinkTarget } from "../markdown/links";
+import { buildNameIndex, resolveLinkTarget } from "../markdown/links";
 import { normalizeVaultPath } from "../util";
 
 export interface GraphNode {
@@ -48,6 +48,7 @@ export function buildLinkGraph(docs: DocAnalysis[], options: Partial<GraphOption
 	const nodes = new Map<string, GraphNode>();
 	const pathIndex = new Map<string, string>();
 	for (const doc of docs) pathIndex.set(doc.file.path.toLowerCase(), doc.file.path);
+	const nameIndex = buildNameIndex(docs.map((doc) => doc.file.path));
 	for (const doc of docs) {
 		nodes.set(doc.file.path, {
 			path: doc.file.path,
@@ -63,7 +64,7 @@ export function buildLinkGraph(docs: DocAnalysis[], options: Partial<GraphOption
 	for (const doc of docs) {
 		const seen = new Set<string>();
 		for (const target of doc.outgoing) {
-			const resolved = resolveLinkTarget(target, doc.file.path, pathIndex);
+			const resolved = resolveLinkTarget(target, doc.file.path, pathIndex, nameIndex);
 			if (!resolved) {
 				if (broken.length < opts.maxBrokenReported) broken.push({ from: doc.file.path, target });
 				continue;

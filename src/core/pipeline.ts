@@ -38,7 +38,7 @@ import {
 import { estimateTokens } from "./tokens";
 import { hasPositivePattern, matchAny } from "./glob";
 import { analyzeDocument } from "./markdown/analyzer";
-import { resolveLinkTarget } from "./markdown/links";
+import { buildNameIndex, resolveLinkTarget } from "./markdown/links";
 import { countWords } from "./markdown/syntax";
 import {
 	transformDocument,
@@ -127,6 +127,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const allFiles = await deps.vault.listFiles();
 	const pathIndex = new Map<string, string>();
 	for (const file of allFiles) pathIndex.set(file.path.toLowerCase(), file.path);
+	// Built once: resolving a link by name must not scan the whole vault.
+	const nameIndex = buildNameIndex(pathIndex.values());
 
 	const selection = selectCandidates(
 		allFiles,
@@ -1292,6 +1294,7 @@ function renderPartIndex(
 
 export function createResolver(deps: ExportDeps, pathIndex: Map<string, string>, files: SourceFile[]): ContentResolver {
 	const byPath = new Map(files.map((f) => [f.path.toLowerCase(), f]));
+	const nameIndex = buildNameIndex(files.map((f) => f.path));
 	const readNote = async (path: string): Promise<string | null> => {
 		if (deps.readNote) return deps.readNote(path);
 		try {
@@ -1302,7 +1305,7 @@ export function createResolver(deps: ExportDeps, pathIndex: Map<string, string>,
 	};
 	return {
 		readNote,
-		resolve: (target, fromPath) => resolveLinkTarget(target, fromPath, pathIndex),
+		resolve: (target, fromPath) => resolveLinkTarget(target, fromPath, pathIndex, nameIndex),
 		readBinary: async (path) => {
 			if (deps.readBinary) return deps.readBinary(path);
 			if (deps.vault.readBinary) {
