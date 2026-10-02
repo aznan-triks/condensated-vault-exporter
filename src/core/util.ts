@@ -39,6 +39,27 @@ export function fileExtension(path: string): string {
 	return i <= 0 ? "" : base.slice(i + 1).toLowerCase();
 }
 
+/**
+ * Extensions the exporter can read as text. An embed pointing at anything else
+ * (`![[diagram.png]]`) is an attachment, not a note link.
+ */
+export const TEXT_EXTENSIONS: ReadonlySet<string> = new Set([
+	"md",
+	"markdown",
+	"txt",
+	"text",
+	"csv",
+	"org",
+	"tex",
+	"canvas",
+]);
+
+/** True when a link target can be a note (no extension, or a text one). */
+export function isTextTarget(path: string): boolean {
+	const ext = fileExtension(path);
+	return ext === "" || TEXT_EXTENSIONS.has(ext);
+}
+
 export function stripExtension(path: string): string {
 	const base = baseName(path);
 	const i = base.lastIndexOf(".");

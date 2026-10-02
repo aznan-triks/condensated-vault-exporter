@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeProfileStatus, describeChanges, isStale } from "../src/core/state/status";
+import { collectAttachments } from "../src/core/intel/attachments";
 import { createState } from "../src/core/state/manifest";
 import { createDefaultProfiles } from "../src/core/profiles";
 import { groupSecretFindings, scanForSecrets } from "../src/core/intel/safety";
@@ -431,5 +432,69 @@ describe("profile status", () => {
 		const settled = computeProfileStatus(profile, null, clean, [files[0]]);
 		expect(isStale(settled)).toBe(false);
 		expect(describeChanges(settled)).toBe("up to date");
+	});
+});
+
+describe("attachment embeds", () => {
+	it("does not count a binary embed as a note link", () => {
+		const doc = analyzeDocument(
+			{
+				path: "note.md",
+				name: "note.md",
+				folder: "",
+				ext: "md",
+				size: 120,
+				mtime: 0,
+				ctime: 0,
+			},
+			"Some prose with enough words to be a note at all, honestly.\n\n![[diagram.png]]\n\n![[Other note]]\n",
+		);
+		// The image is an attachment (the inventory reports it); the
+		// extension-less embed is still a transclusion of a note.
+		expect(doc.outgoing).toEqual(["Other note"]);
+	});
+});
+
+describe("attachment inventory", () => {
+	const source = (path: string, size = 10) => {
+		const name = path.split("/").pop() ?? path;
+		return {
+			path,
+			name,
+			folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "",
+			ext: name.split(".").pop() ?? "",
+			size,
+			mtime: 0,
+			ctime: 0,
+		};
+	};
+	const docOf = (path: string, content: string) => {
+		const file = source(path);
+		return analyzeDocument({ ...file, ext: "md", size: content.length }, content);
+	};
+
+	it("resolves embeds by path, name and extension-less name", () => {
+		const docs = [
+			docOf("a.md", "![[diagram.png]] and ![[Assets/photo.jpg]] and ![[Assets/paper]] and ![[missing-file.png]]"),
+			docOf("b.md", "![[diagram.png]]"),
+		];
+		const inventory = collectAttachments(docs, [
+			source("Assets/diagram.png", 1000),
+			source("Assets/photo.jpg", 2000),
+			source("Assets/paper.pdf", 3000),
+			source("Notes/other.md", 50),
+		]);
+		expect(inventory.refs.map((ref) => ref.path).sort()).toEqual(["Assets/diagram.png", "Assets/paper.pdf", "Assets/photo.jpg"]);
+		expect(inventory.refs[0].references).toBe(2);
+		expect(inventory.totalBytes).toBe(6000);
+		expect(inventory.summary).toContain("2 images");
+		expect(inventory.summary).toContain("1 PDF");
+		expect(inventory.unresolved).toEqual(["missing-file.png"]);
+	});
+
+	it("counts a file once per note even when it is embedded twice", () => {
+		const docs = [docOf("a.md", "![[logo.png]]\n\n![[logo.png]]")];
+		const inventory = collectAttachments(docs, [source("logo.png", 42)]);
+		expect(inventory.refs).toEqual([{ path: "logo.png", kind: "png", size: 42, references: 1 }]);
 	});
 });

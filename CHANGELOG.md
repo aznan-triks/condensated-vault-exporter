@@ -82,6 +82,10 @@ First complete release.
   character, Markdown stripping only runs the substitutions a line can match,
   and the render pass reuses the token count the budget already measured
   (analyze 1 272 ms → 796 ms on the 5 000-note profile benchmark).
+- Attachment inventory: binary embeds (`![[diagram.png]]`, PDFs) are resolved
+  against the vault and reported — the report ends with the files the bundle
+  only points at, the instructions file tells the destination not to invent
+  their content, and the sidecar records `attachments: {count, bytes}`.
 - Repeated headings whose section still carries content are kept: removing
   "## Gratitude" while its `- coffee` item survived left orphaned bullets that
   read like corruption. Headings still go when everything below them was

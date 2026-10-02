@@ -17,7 +17,7 @@ import type {
 	SourceFile,
 } from "../types";
 import { asDate, asStringArray, normalizeTag, parseFrontmatter } from "../frontmatter";
-import { contentHash, hash32, slugify, unique } from "../util";
+import { contentHash, hash32, isTextTarget, slugify, unique } from "../util";
 import { type LineSink } from "../condense/boilerplate";
 import { extractLinksFromLine } from "./links";
 import {
@@ -166,7 +166,10 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 	const stats = buildStats(text, proseText, proseWords, sentenceCount, lines.length, codeLines, file.size);
 	const outgoing = unique(
 		links
-			.filter((l) => !l.isExternal && l.target !== "")
+			// A transclusion of a note is a link; an embed of an image or a PDF
+			// is an attachment, counted by the attachment inventory instead of
+			// showing up as a broken link in every report.
+			.filter((l) => !l.isExternal && l.target !== "" && (!l.isEmbed || isTextTarget(l.target)))
 			.map((l) => l.target),
 	);
 

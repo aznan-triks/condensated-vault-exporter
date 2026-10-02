@@ -18,7 +18,7 @@
     "Notes/Retrieval log.md": "ad705e7ea98f7fba4ed31392bd16f4aa",
     "Projects/Atlas evaluation.md": "aa98172e03a397a72d7b79e797f417dc",
     "Projects/Atlas ranking.md": "fa01339f310aac400cff551276a872be",
-    "Projects/Atlas retrieval.md": "e88e0a7fae77a96ce96f83cd8de15c44",
+    "Projects/Atlas retrieval.md": "b70cc3e66c1080e51899f9515012b0bb",
     "Reference/BM25.md": "f8ab7581af2c9e7068b9fa4f4f365092",
     "Reference/Reciprocal rank fusion.md": "87957369c65e13917b2a9c318011e4e5"
   },
@@ -29,9 +29,9 @@
     "droppedAsDuplicate": 1,
     "droppedAsStub": 0,
     "droppedAsUnreadable": 0,
-    "words": 645,
-    "tokens": 873,
-    "chars": 4150,
+    "words": 649,
+    "tokens": 885,
+    "chars": 4217,
     "boilerplateLines": 6,
     "summarized": 0
   },
@@ -41,13 +41,17 @@
       "index": 0,
       "path": "",
       "sources": 13,
-      "words": 1323,
-      "tokens": 1978
+      "words": 1327,
+      "tokens": 1992
     }
   ],
   "durationMs": 0,
   "warnings": [
     "ℹ️ 1 parts used out of the 1 allowed by Chat context."
   ],
-  "duplicates": 1
+  "duplicates": 1,
+  "attachments": {
+    "count": 1,
+    "bytes": 4208
+  }
 }

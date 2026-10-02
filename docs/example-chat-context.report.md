@@ -1,16 +1,23 @@
 # Export report — Chat context
 
-Profile **Chat context** · generated 2026-01-20 12:00 · 8 ms
+Profile **Chat context** · generated 2026-01-20 12:00 · 10 ms
 
 ## What was exported
 
-- 12 of 13 note(s) (92 %) · 645 words · ~873 tokens
+- 12 of 13 note(s) (92 %) · 649 words · ~885 tokens
 - 1 part
 - `Exports/Chat/vault - 2026-01-20 Chat context.md` — 13 sources, ~2.0k tokens
 
 ## What was left out
 
 - Duplicate of `Meetings/2026-01-12 standup.md` (similarity 89 %): `Meetings/2026-01-19 standup.md`
+
+## Attachments the notes embed
+
+- 1 image (4.1 kB) is embedded in these notes but cannot be part of a text bundle
+- `Assets/atlas-pipeline.png` — 1 reference, 4.1 kB
+
+Upload them separately when the destination accepts files, or delete the embeds if they no longer matter.
 
 ## How the notes hang together
 
@@ -24,6 +31,7 @@ Profile **Chat context** · generated 2026-01-20 12:00 · 8 ms
 ## What was cleaned up
 
 - 6 repeated lines removed as boilerplate
+- 1 image left as a reference (upload them separately if needed)
 
 The most frequent repeated lines:
 
@@ -39,7 +47,7 @@ The most frequent repeated lines:
 
 - ✅ 1 part of the 1 allowed
 - ✅ largest part ~2.0k of 150k tokens
-- ✅ ~873 of 150k tokens in total
+- ✅ ~885 of 150k tokens in total
 
 - ℹ️ 1 parts used out of the 1 allowed by Chat context.
 
@@ -47,4 +55,4 @@ The most frequent repeated lines:
 
 - ℹ️ 1 parts used out of the 1 allowed by Chat context.
 
-*9.2 kB written by Condensated Vault Exporter.*
+*9.3 kB written by Condensated Vault Exporter.*

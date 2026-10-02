@@ -28,6 +28,9 @@ Atlas is the retrieval layer of the second brain: it indexes every note, embeds 
 ## Design notes
 Chunking happens on heading boundaries, 800 tokens with 120 tokens of overlap. Embeddings are cached by content hash so a rename never re-embeds a note. Ranking combines BM25 with cosine similarity; see [[Projects/Atlas ranking]] for the details.
 
+## Architecture
+![[atlas-pipeline.png]]
+
 ## Open questions
 Does the reranker need a cross-encoder, or is a small logistic model over lexical features enough?`),
 	N("Projects/Atlas ranking.md", `---
@@ -155,9 +158,25 @@ It is the reason the lexical and the semantic rankings of Atlas can be combined 
 
 The map of content for everything retrieval: the project, the methods and the log.`),
 ];
-const files = new Map(notes.map(n => [n.path, n.content]));
+// A referenced-but-not-exported attachment, so the examples show how the
+// bundle accounts for the files it cannot contain.
+const assets = [
+	N("Assets/atlas-pipeline.png", "\u0089PNG\r\n\u001a\n" + "pixels ".repeat(600)),
+	N("Assets/atlas-notes.pdf", "%PDF-1.4 " + "page ".repeat(400)),
+];
+const files = new Map([...notes, ...assets].map(n => [n.path, n.content]));
 const vault = {
-	async listFiles() { return notes.map(n => ({ path: n.path, name: n.path, folder: n.path.split("/").slice(0,-1).join("/"), ext: "md", size: n.content.length, mtime: Date.parse("2026-01-20T10:00:00Z"), ctime: Date.parse("2026-01-01T10:00:00Z") })); },
+	async listFiles() {
+		return [...notes, ...assets].map(n => ({
+			path: n.path,
+			name: n.path.split("/").pop(),
+			folder: n.path.split("/").slice(0, -1).join("/"),
+			ext: n.path.split(".").pop(),
+			size: n.content.length,
+			mtime: Date.parse("2026-01-20T10:00:00Z"),
+			ctime: Date.parse("2026-01-01T10:00:00Z"),
+		}));
+	},
 	async read(p) { const c = files.get(p); if (c === undefined) throw new Error("missing " + p); return c; },
 };
 /**

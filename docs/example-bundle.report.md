@@ -1,16 +1,23 @@
 # Export report — NotebookLM (free)
 
-Profile **NotebookLM** · generated 2026-01-20 12:00 · 38 ms
+Profile **NotebookLM** · generated 2026-01-20 12:00 · 44 ms
 
 ## What was exported
 
-- 13 of 13 note(s) (100 %) · 645 words · ~873 tokens
+- 13 of 13 note(s) (100 %) · 649 words · ~885 tokens
 - 1 part
 - `Exports/NotebookLM/vault - 2026-01-20 NotebookLM.md` — 14 sources, ~2.2k tokens
 
 ## What was left out
 
 - Duplicate of `Meetings/2026-01-12 standup.md` (similarity 92 %): `Meetings/2026-01-19 standup.md`
+
+## Attachments the notes embed
+
+- 1 image (4.1 kB) is embedded in these notes but cannot be part of a text bundle
+- `Assets/atlas-pipeline.png` — 1 reference, 4.1 kB
+
+Upload them separately when the destination accepts files, or delete the embeds if they no longer matter.
 
 ## How the notes hang together
 
@@ -24,6 +31,7 @@ Profile **NotebookLM** · generated 2026-01-20 12:00 · 38 ms
 ## What was cleaned up
 
 - 6 repeated lines removed as boilerplate
+- 1 image left as a reference (upload them separately if needed)
 
 The most frequent repeated lines:
 

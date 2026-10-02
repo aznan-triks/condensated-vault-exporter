@@ -11,6 +11,7 @@
 
 import type { BundleLimits, ExportDelta, PlanStats } from "../types";
 import { groupSecretFindings, type SecretFinding } from "../intel/safety";
+import type { AttachmentInventory } from "../intel/attachments";
 import type { LimitViolation } from "./limits";
 import type { TransformStats } from "../markdown/transforms";
 import { formatBytes, formatCount, plural } from "../util";
@@ -72,6 +73,8 @@ export interface ExportReportInput {
 	graph?: ReportGraph;
 	/** Credential-shaped strings found in the assembled parts. */
 	secrets?: { findings: SecretFinding[]; truncated: boolean };
+	/** Embedded files the bundle can only point at. */
+	attachments?: AttachmentInventory;
 }
 
 /** How many individual lines of a list the report spells out. */
@@ -180,6 +183,29 @@ export function buildExportReport(input: ExportReportInput): string {
 			lines.push("", "> Nothing was kept: check the profile's folder, tag and date filters.");
 		}
 		lines.push("");
+	}
+
+	// -- attachments -----------------------------------------------------------
+	if (input.attachments && input.attachments.refs.length > 0) {
+		const inventory = input.attachments;
+		lines.push("## Attachments the notes embed", "");
+		const verb = inventory.refs.length === 1 ? "is" : "are";
+		lines.push(
+			`- ${inventory.summary} (${formatBytes(inventory.totalBytes)}) ${verb} embedded in these notes but cannot be part of a text bundle`,
+		);
+		lines.push(
+			...capped(inventory.refs, (ref) =>
+				bullet(ref.path, ` — ${plural(ref.references, "reference")}, ${formatBytes(ref.size)}`),
+			),
+		);
+		if (inventory.unresolved.length > 0) {
+			lines.push(`- ${plural(inventory.unresolved.length, "embed")} points at something the vault does not have`);
+		}
+		lines.push(
+			"",
+			"Upload them separately when the destination accepts files, or delete the embeds if they no longer matter.",
+			"",
+		);
 	}
 
 	// -- how the notes hang together -------------------------------------------

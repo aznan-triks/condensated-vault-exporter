@@ -59,6 +59,7 @@ import { scanForSecrets } from "./intel/safety";
 import { neighbourhoodScope, type Neighbourhood } from "./scope";
 import { buildInstructions } from "./pack/instructions";
 import { buildExportReport, type ReportEntry, type ReportGraph } from "./pack/report";
+import { collectAttachments, type AttachmentInventory } from "./intel/attachments";
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
 import { allocateBudget, scoreDocuments, type BudgetDecision } from "./pack/budget";
 import { chunkUnits, type PackUnit } from "./pack/chunk";
@@ -604,6 +605,13 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			)
 		: [];
 
+	// Embedded images/PDFs/audio are referenced, never inlined: account for them
+	// so the bundle can say what the destination is missing.
+	const attachments = collectAttachments(
+		included.map((entry) => entry.doc),
+		allFiles,
+	);
+
 	const wantKnowledgeMap = profile.packaging.includeKnowledgeMap || profile.packaging.instructionsFile;
 	const knowledgeMap = wantKnowledgeMap
 		? buildKnowledgeMap({
@@ -801,6 +809,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				volumes: volumeCount,
 				lastModified: knowledgeMap.overview.dateRange?.to,
 				destination: profile.limits.label !== "" ? profile.limits.label : profile.name,
+				attachments:
+					attachments.refs.length > 0
+						? { count: attachments.refs.length, summary: attachments.summary, totalBytes: attachments.totalBytes }
+						: undefined,
 			})
 		: null;
 	const instructionsPath =
@@ -859,6 +871,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		delta: previousManifest ? delta : undefined,
 		graph: reportGraph(rendered),
 		secrets,
+		attachments,
 	});
 	const reportPath =
 		profile.packaging.reportFile && reportText !== ""
@@ -883,6 +896,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		warnings,
 		bundledHashes,
 		started,
+		attachments,
 	);
 	if (request.mode !== "preview") {
 		check();
@@ -1729,6 +1743,7 @@ function buildManifest(
 	warnings: string[],
 	hashes: Record<string, string>,
 	startedAt: number,
+	attachments: AttachmentInventory,
 ): ExportManifest {
 	void title;
 	void boilerplateSamples;
@@ -1753,6 +1768,10 @@ function buildManifest(
 		durationMs: (deps.now?.() ?? Date.now()) - startedAt,
 		warnings: [...warnings],
 		duplicates: dedupe.groups.length,
+		attachments:
+			attachments.refs.length > 0
+				? { count: attachments.refs.length, bytes: attachments.totalBytes }
+				: undefined,
 	};
 }
 

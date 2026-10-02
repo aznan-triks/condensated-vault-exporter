@@ -1,14 +1,16 @@
 # Instructions for Chat context
 
-You are given 12 notes from a personal knowledge base (4.1 kB of Markdown, ~873 tokens). They were exported with the **Chat context** profile.
+You are given 12 notes from a personal knowledge base (4.1 kB of Markdown, ~885 tokens). They were exported with the **Chat context** profile.
 
-**Where the notes live.** Projects (3 notes, 237 words), Daily (3 notes, 143 words), Reference (2 notes, 126 words), Notes (2 notes, 111 words), Meetings (1 note, 43 words), MOCs (1 note, 35 words).
+**Where the notes live.** Projects (3 notes, 239 words), Daily (3 notes, 143 words), Reference (2 notes, 126 words), Notes (2 notes, 111 words), Meetings (1 note, 43 words), MOCs (1 note, 35 words).
 
 **Last modified.** 2026-01-20.
 
 **Tags in use.** #project (3), #retrieval (2), #evaluation (1).
 
 **Start from these.** Atlas ranking, Atlas retrieval, Retrieval log, Embeddings cheat sheet, Atlas evaluation are the most referenced notes.
+
+**Not included.** These notes embed 1 image (4.1 kB) that are not part of this bundle — they are referenced by name only, so do not invent their content.
 
 ## How the bundle is organised
 
@@ -33,7 +35,7 @@ You are given 12 notes from a personal knowledge base (4.1 kB of Markdown, ~873 
 - Which notes are unlinked and might need to be connected to the rest?
 - What changed most recently, around 2026-01-20?
 
-**Vocabulary that matters in this corpus.** atlas, bm25, answers, retrieval, embeddings, afternoon, lists, mrr, quality, questions, coffee, annotated.
+**Vocabulary that matters in this corpus.** atlas, bm25, answers, retrieval, embeddings, afternoon, lists, mrr, quality, questions, coffee, boundary.
 
 ---
 

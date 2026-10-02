@@ -28,6 +28,8 @@ export interface InstructionsInput {
 	lastModified?: string;
 	/** Destination hint, e.g. "NotebookLM". */
 	destination?: string;
+	/** Embedded files (images, PDFs…) the bundle can only point at. */
+	attachments?: { count: number; summary: string; totalBytes: number };
 }
 
 export const MAX_INSTRUCTIONS_CHARS = 10_000;
@@ -73,6 +75,15 @@ export function buildInstructions(input: InstructionsInput): string {
 	if (map.hubs.length > 0) {
 		const hubs = map.hubs.slice(0, 5).map((hub) => hub.title).join(", ");
 		lines.push("", `**Start from these.** ${hubs} are the most referenced notes.`);
+	}
+
+	if (input.attachments && input.attachments.count > 0) {
+		lines.push(
+			"",
+			`**Not included.** These notes embed ${input.attachments.summary} (${formatBytes(
+				input.attachments.totalBytes,
+			)}) that are not part of this bundle — they are referenced by name only, so do not invent their content.`,
+		);
 	}
 
 	// -- how to read it -------------------------------------------------------

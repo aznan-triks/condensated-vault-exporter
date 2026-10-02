@@ -11,7 +11,7 @@
 
 import type { SourceFile, VaultPort } from "./types";
 import { buildNameIndex, extractLinksFromLine, resolveLinkTarget } from "./markdown/links";
-import { mapLimit, normalizeVaultPath, stripExtension, basename } from "./util";
+import { basename, isTextTarget, mapLimit, normalizeVaultPath, stripExtension } from "./util";
 
 export interface Neighbourhood {
 	/** Vault path of the note at the centre of the scope. */
@@ -66,6 +66,7 @@ export async function neighbourhoodScope(
 			const extracted = extractLinksFromLine(line);
 			for (const link of extracted.links) {
 				if (link.isExternal) continue;
+				if (link.isEmbed && !isTextTarget(link.target)) continue;
 				const target = resolveLinkTarget(link.target, file.path, pathIndex, nameIndex);
 				if (target === undefined || target === "" || !known.has(target) || target === file.path) continue;
 				if (!links.includes(target)) links.push(target);

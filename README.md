@@ -100,6 +100,32 @@ rather than silently dropped, the same data is exposed as `links.to` /
 `links.from` arrays in JSON and JSONL, and the export report ends with a
 "How the notes hang together" section listing hubs and orphans.
 
+### Files the bundle cannot carry
+
+Images, PDFs and other binary embeds (`![[atlas-pipeline.png]]`) can never be
+part of a text bundle. Instead of letting the model guess at what they show,
+the exporter resolves every embed against the vault, counts what it found, and
+says so in two places — the report ends with the inventory, and the
+instructions file tells the destination explicitly not to invent the content:
+
+```markdown
+**Not included.** These notes embed 1 image (4.1 kB) that are not part of this
+bundle — they are referenced by name only, so do not invent their content.
+```
+
+```markdown
+## Attachments the notes embed
+
+- 1 image (4.1 kB) are embedded in these notes but cannot be part of a text bundle
+- `Assets/atlas-pipeline.png` — 1 reference, 4.1 kB
+
+Upload them separately when the destination accepts files, or delete the embeds
+if they no longer matter.
+```
+
+The sidecar manifest carries the same numbers (`attachments: {count, bytes}`),
+so a script can tell at a glance whether a bundle is text-complete.
+
 ### Is my bundle still current?
 
 **Show export status** (command palette) opens one table for every profile:

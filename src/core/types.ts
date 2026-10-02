@@ -556,6 +556,8 @@ export interface ExportManifest {
 	warnings: string[];
 	/** Number of duplicate groups collapsed in this run. */
 	duplicates: number;
+	/** Embedded files the bundle references but does not contain. */
+	attachments?: { count: number; bytes: number };
 }
 
 export interface ChunkDiagnostics {

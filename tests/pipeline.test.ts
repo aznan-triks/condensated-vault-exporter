@@ -1470,3 +1470,31 @@ describe("topic focus", () => {
 		expect(sources).not.toContain("a.md");
 	});
 });
+
+describe("attachment accounting", () => {
+	const files = () => [
+		makeFile("notes/diagram.md", note("Diagram note", "The pipeline is drawn below.\n\n![[atlas-pipeline.png]]\n\n![[atlas-notes.pdf]]\n\nAnd here is prose long enough to survive the filters.")),
+		makeFile("Assets/atlas-pipeline.png", "p".repeat(4200)),
+		makeFile("Assets/atlas-notes.pdf", "d".repeat(9100)),
+	];
+
+	it("lists embedded files the bundle cannot contain", async () => {
+		const profile = testProfile({ packaging: { ...testProfile().packaging, reportFile: true, instructionsFile: true } });
+		const result = await runExport({ profile }, { vault: fakeVault(files()), sink: memorySink() });
+		const report = result.report ?? "";
+		expect(report).toContain("## Attachments the notes embed");
+		expect(report).toContain("`Assets/atlas-pipeline.png`");
+		expect(report).toContain("`Assets/atlas-notes.pdf`");
+		expect(report).toContain("1 PDF");
+		expect(report).toContain("1 image");
+		expect(result.instructions ?? "").toContain("**Not included.**");
+		expect(result.manifest.attachments).toEqual({ count: 2, bytes: 13_300 });
+	});
+
+	it("stays quiet when nothing is embedded", async () => {
+		const plain = [makeFile("notes/plain.md", note("Plain", "No embeds here at all, just a sentence about retrieval and storage."))];
+		const result = await runExport({ profile: testProfile() }, { vault: fakeVault(plain), sink: memorySink() });
+		expect(result.report ?? "").not.toContain("Attachments the notes embed");
+		expect(result.manifest.attachments).toBeUndefined();
+	});
+});
