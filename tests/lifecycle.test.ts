@@ -444,3 +444,34 @@ describe("built-in profiles end to end", () => {
 		expect(leftovers).toHaveLength(0);
 	});
 });
+
+describe("dialog scope estimate and clickable notices", () => {
+	it("shows how much the export will cover", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const scope = await plugin.runner.estimateScope("");
+		expect(scope.notes).toBe(Object.keys(VAULT).length);
+		expect(scope.bytes).toBeGreaterThan(100);
+		const folder = await plugin.runner.estimateScope("daily");
+		expect(folder.notes).toBe(3);
+	});
+
+	it("opens the bundle when its completion notice is clicked", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.notifications = "verbose";
+		await plugin.runner.run(plugin.settings.profiles[0], {});
+		const notice = (await import("./obsidianMock")).Notice as unknown as { messages: string[] };
+		expect(notice.messages.some((message) => /Exported \d+ part/.test(message))).toBe(true);
+		// The notice element carries a click handler that opens the bundle.
+		const { Notice: NoticeClass } = await import("./obsidianMock");
+		const last = (NoticeClass as unknown as { last: InstanceType<typeof NoticeClass> | null }).last!;
+		expect(last).not.toBeNull();
+		expect((last.noticeEl as unknown as HTMLElement).getAttribute("title")).toMatch(/^Open Exports\//);
+		(last.noticeEl as unknown as HTMLElement).click();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(fake.openedFiles.some((path) => path.startsWith("Exports/"))).toBe(true);
+	});
+});

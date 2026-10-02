@@ -37,6 +37,18 @@ export interface PluginSettings {
 	confirmOverwrite: boolean;
 	/** Maximum number of notes analysed in parallel. */
 	concurrency: number;
+	/** Keep one bundle up to date automatically as the vault changes. */
+	autoRefresh: AutoRefreshSettings;
+}
+
+export interface AutoRefreshSettings {
+	enabled: boolean;
+	/** Profile the automatic runs use. Empty means "the active profile". */
+	profileId: string;
+	/** Quiet period after the last change before a run starts. */
+	debounceSeconds: number;
+	/** Skip the run entirely when no note in scope changed. */
+	skipUnchanged: boolean;
 }
 
 export const SETTINGS_VERSION = 1;
@@ -54,6 +66,12 @@ export function defaultSettings(): PluginSettings {
 		state: createState(),
 		confirmOverwrite: true,
 		concurrency: 6,
+		autoRefresh: {
+			enabled: false,
+			profileId: "",
+			debounceSeconds: 8,
+			skipUnchanged: true,
+		},
 	};
 }
 
@@ -117,6 +135,12 @@ export function normalizeSettings(raw: unknown): PluginSettings {
 		state,
 		confirmOverwrite: stored.confirmOverwrite ?? defaults.confirmOverwrite,
 		concurrency: clampNumber(stored.concurrency, 1, 16, defaults.concurrency),
+		autoRefresh: {
+			enabled: stored.autoRefresh?.enabled ?? defaults.autoRefresh.enabled,
+			profileId: typeof stored.autoRefresh?.profileId === "string" ? stored.autoRefresh.profileId : "",
+			debounceSeconds: clampNumber(stored.autoRefresh?.debounceSeconds, 2, 600, defaults.autoRefresh.debounceSeconds),
+			skipUnchanged: stored.autoRefresh?.skipUnchanged ?? defaults.autoRefresh.skipUnchanged,
+		},
 	};
 }
 

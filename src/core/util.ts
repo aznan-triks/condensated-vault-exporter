@@ -143,6 +143,21 @@ export function contentHash(input: string): string {
 	return hash64(input, 0x9e3779b9) + hash64(input, 0x85ebca6b);
 }
 
+/**
+ * Incremental FNV-1a over a string, seeded with a previous value.
+ *
+ * Handy to fingerprint a list without building the joined string first:
+ * `files.reduce((acc, f) => hashString(fingerprint(f), acc), seed)`.
+ */
+export function hashString(input: string, seed = 0x811c9dc5): number {
+	let h = seed >>> 0;
+	for (let i = 0; i < input.length; i++) {
+		h ^= input.charCodeAt(i);
+		h = Math.imul(h, 0x01000193) >>> 0;
+	}
+	return h >>> 0;
+}
+
 /** Fast, well-distributed 32-bit hash of a string (used for MinHash seeds). */
 export function hash32(input: string, seed = 0): number {
 	let h = (0x811c9dc5 ^ seed) >>> 0;
@@ -182,6 +197,15 @@ export function formatCount(n: number): string {
 	if (Math.abs(n) < 1000) return String(Math.round(n));
 	if (Math.abs(n) < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + "k";
 	return (n / 1_000_000).toFixed(1) + "M";
+}
+
+/** Human size for hints and reports (binary units, one decimal at most). */
+export function formatBytes(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+	const units = ["B", "kB", "MB", "GB", "TB"];
+	const exponent = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+	const value = bytes / 1024 ** exponent;
+	return `${exponent === 0 ? Math.round(value) : value.toFixed(value < 10 ? 1 : 0)} ${units[exponent]}`;
 }
 
 export function formatDuration(ms: number): string {

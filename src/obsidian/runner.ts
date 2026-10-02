@@ -9,7 +9,7 @@ import { ExportAbortedError, type ExportProfile, type ExportResult, type SourceF
 import { runExport, type ExportDeps, type PreviousManifestLike } from "../core/pipeline";
 import { AnalysisCache } from "../core/state/cache";
 import { createState, type ExportState } from "../core/state/manifest";
-import { formatCount } from "../core/util";
+import { formatCount, hashString } from "../core/util";
 import { ExportProgress } from "./progress";
 import { FileSystemSinkPort, ObsidianVaultPort, VaultSinkPort } from "./vaultPort";
 import type { PluginSettings } from "./settings";
@@ -22,6 +22,11 @@ export interface RunOptions {
 	onDone?: (result: ExportResult) => Promise<void> | void;
 	/** Set to false for a silent run (e.g. a quick export with quiet mode). */
 	announce?: boolean;
+	/**
+	 * Skip the run entirely when no note in scope changed since the last run of
+	 * that profile (used by automatic refresh).
+	 */
+	skipUnchanged?: boolean;
 }
 
 export interface RunOutcome {
@@ -29,6 +34,8 @@ export interface RunOutcome {
 	cancelled?: boolean;
 	error?: string;
 	result?: ExportResult;
+	/** True when the run was skipped because nothing in scope had changed. */
+	skipped?: boolean;
 }
 
 export class ExportRunner {
@@ -36,6 +43,8 @@ export class ExportRunner {
 	private readonly vaultPort: ObsidianVaultPort;
 	private current: ExportProgress | null = null;
 	private statusEl: HTMLElement | null = null;
+	/** Last fingerprint of the files each profile selected, for auto-refresh. */
+	private readonly fingerprints = new Map<string, string>();
 
 	constructor(
 		private readonly app: App,
@@ -62,6 +71,23 @@ export class ExportRunner {
 	clearCache(): void {
 		this.cache.clear();
 		this.vaultPort.invalidate();
+		this.fingerprints.clear();
+	}
+
+	/**
+	 * Cheap "did anything change?" check: path, size and modification time of
+	 * every note in scope. Nothing is read, so an automatic run that finds no
+	 * change costs one file listing.
+	 */
+	async scopeFingerprint(profile: ExportProfile): Promise<string> {
+		const files: SourceFile[] = await this.vaultPort.listFiles(
+			profile.targets.length > 0 ? [...profile.targets] : undefined,
+		);
+		let hash = 0x811c9dc5;
+		for (const file of files) {
+			hash = hashString(`${file.path}:${file.size}:${file.mtime}`, hash);
+		}
+		return `${files.length}:${(hash >>> 0).toString(16)}`;
 	}
 
 	invalidatePath(path: string): void {
@@ -131,7 +157,15 @@ export class ExportRunner {
 		};
 
 		try {
-			const result = await runExport(
+			if (options.skipUnchanged) {
+			const fingerprint = await this.scopeFingerprint(requestProfile);
+			if (this.fingerprints.get(requestProfile.id) === fingerprint) {
+				return { ok: true, skipped: true };
+			}
+			this.fingerprints.set(requestProfile.id, fingerprint);
+		}
+
+		const result = await runExport(
 				{ profile: requestProfile, mode: options.mode ?? "export" },
 				deps,
 			);
@@ -167,6 +201,12 @@ export class ExportRunner {
 			this.current = null;
 			if (settings.rememberHistory) await this.saveSettings().catch(() => undefined);
 		}
+	}
+
+	/** Opens one of the files a run wrote (vault files only). */
+	private async openPath(path: string): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+		if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
 	}
 
 	/** Reads the previous manifest so delta exports can be diffed. */
@@ -210,13 +250,17 @@ export class ExportRunner {
 			problems.length > 0 ? 8000 : 4000,
 		);
 		notice.noticeEl.addClass("cve-notice");
+		// The notice is the fastest way back to what was just written: clicking
+		// it opens the first part in a new tab.
+		const firstWritten = result.written.find((path) => path.endsWith(".md") || path.endsWith(".txt"));
+		if (options.mode !== "preview" && firstWritten) {
+			notice.noticeEl.addClass("cve-notice-clickable");
+			notice.noticeEl.setAttribute("title", `Open ${firstWritten}`);
+			notice.noticeEl.onClickEvent(() => void this.openPath(firstWritten));
+		}
 
-		if (options.mode !== "preview" && settings.openAfterExport && profile.output.openAfterExport) {
-			const first = result.written.find((path) => path.endsWith(".md"));
-			if (first) {
-				const file = this.app.vault.getAbstractFileByPath(normalizePath(first));
-				if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-			}
+		if (options.mode !== "preview" && settings.openAfterExport && profile.output.openAfterExport && firstWritten) {
+			await this.openPath(firstWritten);
 		}
 	}
 
@@ -285,6 +329,17 @@ export class ExportRunner {
 	}
 
 	/** Lists markdown files (used by the folder picker in the modal). */
+	/**
+	 * Cheap scope estimate for the dialog: how much markdown a target folder
+	 * holds. Uses the cached file list only — no note is read.
+	 */
+	async estimateScope(target: string): Promise<{ notes: number; bytes: number }> {
+		const files: SourceFile[] = await this.vaultPort.listFiles(target === "" ? undefined : [target]);
+		let bytes = 0;
+		for (const file of files) bytes += file.size;
+		return { notes: files.length, bytes };
+	}
+
 	async listFolders(): Promise<string[]> {
 		const files: SourceFile[] = await this.vaultPort.listFiles();
 		const folders = new Set<string>();

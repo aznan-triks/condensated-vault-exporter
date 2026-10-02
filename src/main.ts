@@ -17,6 +17,8 @@ export default class CondensatedVaultExporter extends Plugin {
 	settings!: PluginSettings;
 	private runner!: ExportRunner;
 	private statusBarEl: HTMLElement | null = null;
+	/** Timer for the automatic refresh (quiet period after the last edit). */
+	private autoRefreshTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		this.settings = normalizeSettings(await this.loadData());
@@ -91,13 +93,54 @@ export default class CondensatedVaultExporter extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
 				this.runner.invalidatePath(file.path);
+				this.scheduleAutoRefresh();
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("create", (file) => {
+				this.runner.invalidatePath(file.path);
+				this.scheduleAutoRefresh();
 			}),
 		);
 		this.registerEvent(this.app.vault.on("delete", (file) => this.runner.invalidatePath(file.path)));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.runner.invalidatePath(oldPath)));
 	}
 
+	/**
+	 * Quiet-period timer behind the automatic refresh: a run starts once the
+	 * vault has been still for `autoRefresh.debounceSeconds`. Typing a sentence
+	 * therefore costs one run, not one per keystroke.
+	 */
+	private scheduleAutoRefresh(): void {
+		if (!this.settings.autoRefresh.enabled) return;
+		if (this.autoRefreshTimer !== null) window.clearTimeout(this.autoRefreshTimer);
+		const delay = Math.max(2, this.settings.autoRefresh.debounceSeconds) * 1000;
+		const timer = window.setTimeout(() => {
+			this.autoRefreshTimer = null;
+			void this.runAutoRefresh();
+		}, delay);
+		// Kept so the timer can be cleared on unload.
+		this.autoRefreshTimer = timer;
+	}
+
+	/** Runs the auto-refresh profile, silently, if it has something to do. */
+	private async runAutoRefresh(): Promise<void> {
+		if (!this.settings.autoRefresh.enabled || this.runner.busy) return;
+		const id = this.settings.autoRefresh.profileId || this.settings.activeProfileId;
+		const profile = this.settings.profiles.find((p) => p.id === id);
+		if (!profile) return;
+		const outcome = await this.runner.run(profile, {
+			skipUnchanged: this.settings.autoRefresh.skipUnchanged,
+			announce: this.settings.notifications !== "quiet",
+		});
+		if (outcome.ok && !outcome.skipped && this.statusBarEl) {
+			this.statusBarEl.setText(`$(package-plus) ${profile.name} refreshed`);
+		}
+	}
+
 	onunload(): void {
+		if (this.autoRefreshTimer !== null) window.clearTimeout(this.autoRefreshTimer);
+		this.autoRefreshTimer = null;
 		this.runner?.cancel();
 	}
 
@@ -142,6 +185,11 @@ export default class CondensatedVaultExporter extends Plugin {
 
 	/** Re-applies settings that affect the UI shell (called by the tab). */
 	async applySettings(): Promise<void> {
+		// Turning auto-refresh off must also cancel a pending run.
+		if (!this.settings.autoRefresh.enabled && this.autoRefreshTimer !== null) {
+			window.clearTimeout(this.autoRefreshTimer);
+			this.autoRefreshTimer = null;
+		}
 		if (!this.settings.statusBar && this.statusBarEl) {
 			this.runner.setStatusElement(null);
 			this.statusBarEl.remove();

@@ -11,7 +11,7 @@
 import { App, Component, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
 import type { ExportProfile, ExportResult } from "../core/types";
 import { describeProfile } from "../core/profiles";
-import { formatCount } from "../core/util";
+import { formatBytes, formatCount } from "../core/util";
 import type { ExportRunner } from "./runner";
 import type { PluginSettings } from "./settings";
 import { MarkdownRenderer } from "obsidian";
@@ -29,6 +29,8 @@ export class ExportDialog extends Modal {
 	private copyToClipboard: boolean;
 	private folders: string[] = [];
 	private running = false;
+	/** Guards against a stale scope estimate overwriting a newer one. */
+	private scopeToken = 0;
 	private progressEl: HTMLElement | null = null;
 	private buttonsEl: HTMLElement | null = null;
 
@@ -82,6 +84,7 @@ export class ExportDialog extends Modal {
 				text.setValue(this.target).setPlaceholder("(vault root)");
 				text.onChange((value) => {
 					this.target = value.trim();
+					this.renderSummary();
 				});
 				const list = text.inputEl;
 				list.setAttribute("list", "cve-folder-list");
@@ -147,6 +150,31 @@ export class ExportDialog extends Modal {
 				text: `Profile folders: ${this.profile.targets.join(", ")}`,
 			});
 		}
+		// A scope estimate costs one cached file listing and answers the first
+		// question a user has: how big is this export going to be?
+		const scopeEl = this.summaryEl.createEl("p", { cls: "cve-hint" });
+		const target = this.target;
+		this.scopeToken++;
+		const token = this.scopeToken;
+		scopeEl.setText("Counting the notes in scope…");
+		void this.runner
+			.estimateScope(target)
+			.then(({ notes, bytes }) => {
+				if (token !== this.scopeToken || !scopeEl.isConnected) return;
+				const tokens = Math.round(bytes / 4);
+				scopeEl.setText(
+					`In scope: ${formatCount(notes)} note(s) · ${formatBytes(bytes)} of Markdown (≈ ${formatCount(tokens)} tokens) · ${this.describeBudget()}`,
+				);
+			})
+			.catch(() => scopeEl.setText(""));
+	}
+
+	private describeBudget(): string {
+		const limits = this.profile.limits;
+		if (limits.maxWordsPerPart > 0) return `up to ${formatCount(limits.maxWordsPerPart)} words per part`;
+		if (limits.maxTokensPerPart > 0) return `up to ~${formatCount(limits.maxTokensPerPart)} tokens per part`;
+		if (limits.maxTotalWords > 0) return `total budget ${formatCount(limits.maxTotalWords)} words`;
+		return "no size limit";
 	}
 
 	private renderButtons(): void {

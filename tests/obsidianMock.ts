@@ -120,12 +120,15 @@ export class Component {
 
 export class Notice {
 	static messages: string[] = [];
+	/** The most recently created notice, for tests that need its element. */
+	static last: Notice | null = null;
 	noticeEl: El;
 	message: string;
 	constructor(message: string, _timeout?: number) {
 		this.message = message;
 		Notice.messages.push(message);
 		this.noticeEl = createElement();
+		Notice.last = this;
 	}
 	setMessage(message: string): void {
 		this.message = message;

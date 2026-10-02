@@ -178,7 +178,10 @@ for (const id of Object.keys(targets)) {
 			now: () => Date.parse("2026-01-20T12:00:00Z"),
 			sink: {
 				async write(path, content) {
-					const file = targets[id];
+					// The sidecar manifest goes next to the bundle, not into it.
+					const file = path.endsWith(".manifest.json")
+						? targets[id].replace(/\.md$/, ".manifest.json")
+						: targets[id];
 					mkdirSync(dirname(file), { recursive: true });
 					writeFileSync(file, content);
 					return path;
