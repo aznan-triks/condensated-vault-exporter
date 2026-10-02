@@ -27,6 +27,35 @@ export interface TokenStats {
 const CJK_RE =
 	/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff]/;
 const SYMBOL_RE = /[{}()[\]<>;:+=*/\\|&!^~%$#@`_\-]/;
+
+/**
+ * Numeric equivalents of the two character tests above.
+ *
+ * `CJK_RE.test(character)` allocates a one-character string and runs the
+ * regular-expression engine for *every* character of *every* string this
+ * module measures — it is the hottest loop of a large export. The ranges are
+ * all in the BMP, so comparing code points gives the same answer for free.
+ */
+function isCjkCode(code: number): boolean {
+	return (
+		(code >= 0x3040 && code <= 0x30ff) ||
+		(code >= 0x3400 && code <= 0x4dbf) ||
+		(code >= 0x4e00 && code <= 0x9fff) ||
+		(code >= 0xf900 && code <= 0xfaff) ||
+		(code >= 0xac00 && code <= 0xd7af) ||
+		(code >= 0x1100 && code <= 0x11ff)
+	);
+}
+
+const SYMBOL_TABLE = (() => {
+	const table = new Uint8Array(128);
+	for (const ch of "{}()[]<>;:+=*/\\|&!^~%$#@`_-") table[ch.charCodeAt(0)] = 1;
+	return table;
+})();
+
+function isSymbolCode(code: number): boolean {
+	return code < 128 && SYMBOL_TABLE[code] === 1;
+}
 const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’._-]*/gu;
 
 export interface TokenEstimateOptions {
@@ -57,12 +86,11 @@ export function estimateTokens(text: string, options: TokenEstimateOptions = {})
 	}
 
 	for (let i = 0; i < text.length; i++) {
-		const ch = text[i];
 		const code = text.charCodeAt(i);
 		if (code === 32 || code === 9 || code === 10 || code === 13) continue;
 		nonSpaceChars++;
-		if (CJK_RE.test(ch)) cjkChars++;
-		else if (SYMBOL_RE.test(ch)) symbols++;
+		if (code > 0x2e7f && isCjkCode(code)) cjkChars++;
+		else if (isSymbolCode(code)) symbols++;
 	}
 
 	const latinChars = Math.max(0, nonSpaceChars - cjkChars - symbols);

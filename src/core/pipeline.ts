@@ -401,7 +401,9 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			}
 		}
 
-		const tokens = estimateTokens(body);
+		// The prepare phase already measured this body; re-measuring it would
+		// only repeat the most expensive call of the run unchanged.
+		const tokenCount = summaryApplied || truncated ? estimateTokens(body).tokens : preparedNote.tokens;
 		const node = graph.nodes.get(doc.file.path);
 		const relatedNotes = (related.byPath.get(doc.file.path) ?? [])
 			.map((r) => ({
@@ -420,7 +422,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			aliases: doc.aliases,
 			frontmatter: selectFrontmatter(doc, profile),
 			words: countWords(body),
-			tokens: tokens.tokens,
+			tokens: tokenCount,
 			chars: body.length,
 			modified: doc.file.mtime,
 			created: doc.file.ctime,

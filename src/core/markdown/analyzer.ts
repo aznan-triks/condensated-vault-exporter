@@ -255,6 +255,15 @@ function buildStats(
 	};
 }
 
+/** Murmur-style finaliser: gives the rolled window hash a uniform avalanche. */
+function mix32(x: number): number {
+	x = (x ^ (x >>> 16)) >>> 0;
+	x = Math.imul(x, 0x7feb352d) >>> 0;
+	x = (x ^ (x >>> 15)) >>> 0;
+	x = Math.imul(x, 0x846ca68b) >>> 0;
+	return (x ^ (x >>> 16)) >>> 0;
+}
+
 const MAX_NORMALIZED_LINES = 400;
 const MAX_LINE_SAMPLES = 24;
 
@@ -275,23 +284,40 @@ function buildSignature(text: string): {
 	const wordCount = words.length;
 	if (wordCount < SHINGLE_K * 2) return { shingles: null, shingleHashes: null, wordCount, shingleCount: 0 };
 
+	// Each word is hashed once: a note repeats the same words constantly, so the
+	// memo saves most of the work before the windows are even built.
+	const wordHashes = new Uint32Array(wordCount);
+	const memo = new Map<string, number>();
+	for (let i = 0; i < wordCount; i++) {
+		const word = words[i];
+		let hash = memo.get(word);
+		if (hash === undefined) {
+			hash = hash32(word, 0x9e3779b1);
+			memo.set(word, hash);
+		}
+		wordHashes[i] = hash;
+	}
 	const signature = new Uint32Array(SHINGLE_SIZE).fill(0xffffffff);
-	const shingle = new Array<string>(SHINGLE_K);
 	const distinct = new Set<number>();
-	// Two independent hashes per shingle, combined into 32 MinHash slots by
-	// double hashing. Hashing each shingle once per slot — the obvious way —
-	// costs 32 string passes per position and dominates the whole export on a
-	// big vault; this keeps the estimate and costs two passes.
-	for (let i = 0; i + SHINGLE_K <= words.length; i++) {
-		for (let k = 0; k < SHINGLE_K; k++) shingle[k] = words[i + k];
-		const text2 = shingle.join(" ");
-		const h1 = hash32(text2, 0x9e3779b1);
-		const h2 = hash32(text2, 0x85ebca6b) | 1;
+	// One hash per shingle, built from the hashes of its words instead of from
+	// a joined string: joining and re-hashing 8-word windows allocated a string
+	// per position and showed up as one of the two hottest functions of a large
+	// export. The window hash is rolled with integer arithmetic only.
+	for (let i = 0; i + SHINGLE_K <= wordCount; i++) {
+		let a = 0x811c9dc5;
+		let b = 0;
+		for (let k = 0; k < SHINGLE_K; k++) {
+			const w = wordHashes[i + k];
+			a = Math.imul(a ^ w, 0x01000193) >>> 0;
+			b = (Math.imul(b, 0x27d4eb2d) + w) >>> 0;
+		}
+		const h1 = mix32(a);
+		const h2 = mix32(b) | 1;
 		for (let s = 0; s < SHINGLE_SIZE; s++) {
 			const h = (h1 + Math.imul(s + 1, h2)) >>> 0;
 			if (h < signature[s]) signature[s] = h;
 		}
-		if (distinct.size <= MAX_EXACT_SHINGLES) distinct.add(hash32(text2, 0x51ed2701));
+		if (distinct.size <= MAX_EXACT_SHINGLES) distinct.add(mix32(a ^ 0x51ed2701));
 	}
 	const exact = distinct.size <= MAX_EXACT_SHINGLES;
 	const hashes = exact ? Uint32Array.from([...distinct].sort((a, b) => a - b)) : null;

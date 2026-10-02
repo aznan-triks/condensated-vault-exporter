@@ -183,21 +183,38 @@ export function splitSentences(text: string): string[] {
 	return out;
 }
 
+/**
+ * Characters any of the substitutions below need in the input. A plain prose
+ * line contains none of them, and skipping the chain of thirteen regular
+ * expressions for those lines is a large win on a big vault.
+ */
+const MARKUP_HINT = /[!\[`*_~=#>{}<]/;
+
 /** Removes Markdown markup from a line, keeping readable text. */
 export function stripInlineMarkup(line: string): string {
-	return line
-		.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-		.replace(/!\[\[([^\]]*)\]\]/g, "$1")
-		.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2")
-		.replace(/\[\[([^\]]*)\]\]/g, "$1")
-		.replace(/`{1,3}([^`]*)`{1,3}/g, "$1")
-		.replace(/(\*\*|__)(.*?)\1/g, "$2")
-		.replace(/(?<![*\w])(\*|_)(?![*\s])(.*?)(?<![*\s])\1(?![*\w])/g, "$2")
-		.replace(/~~(.*?)~~/g, "$1")
-		.replace(/==(.*?)==/g, "$1")
-		.replace(/^\s{0,3}#{1,6}\s+/, "")
-		.replace(/^\s*>\s?/, "")
-		.replace(/\{\{[^}]*\}\}/g, "")
-		.replace(/<[^>]+>/g, "");
+	if (!MARKUP_HINT.test(line)) return line;
+	// Each substitution needs its own trigger character, so the line only pays
+	// for the ones it can match. The order is the order of the full chain: the
+	// result is identical, the work is not.
+	let out = line;
+	if (out.indexOf("[") >= 0) {
+		out = out
+			.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/!\[\[([^\]]*)\]\]/g, "$1")
+			.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2")
+			.replace(/\[\[([^\]]*)\]\]/g, "$1");
+	}
+	if (out.indexOf("`") >= 0) out = out.replace(/`{1,3}([^`]*)`{1,3}/g, "$1");
+	if (out.indexOf("*") >= 0 || out.indexOf("_") >= 0) {
+		out = out.replace(/(\*\*|__)(.*?)\1/g, "$2");
+		out = out.replace(/(?<![*\w])(\*|_)(?![*\s])(.*?)(?<![*\s])\1(?![*\w])/g, "$2");
+	}
+	if (out.indexOf("~") >= 0) out = out.replace(/~~(.*?)~~/g, "$1");
+	if (out.indexOf("=") >= 0) out = out.replace(/==(.*?)==/g, "$1");
+	if (out.indexOf("#") >= 0) out = out.replace(/^\s{0,3}#{1,6}\s+/, "");
+	if (out.indexOf(">") >= 0) out = out.replace(/^\s*>\s?/, "");
+	if (out.indexOf("{") >= 0) out = out.replace(/\{\{[^}]*\}\}/g, "");
+	if (out.indexOf("<") >= 0) out = out.replace(/<[^>]+>/g, "");
+	return out;
 }
