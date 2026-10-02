@@ -40,6 +40,10 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Topic focus: a profile (or the export dialog) can take free text — “retrieval
+  evaluation”, “kubernetes upgrades” — and export only the notes that match it
+  best, ranked with the corpus TF-IDF plus title, tag, path and heading
+  bonuses. The run says what it kept and warns when nothing matches.
 - Credential scan: the exporter reads the parts it just assembled and warns
   (plus a redacted section at the top of the report) when they contain
   credential-shaped strings — API keys, tokens, private key blocks, JWTs — so

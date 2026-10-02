@@ -67,6 +67,7 @@ export const DEFAULT_FILTERS: FilterOptions = {
 	includeTextFiles: false,
 	maxNotes: null,
 	neighbourhood: null,
+	focus: null,
 	skipEmpty: true,
 };
 

@@ -27,6 +27,8 @@ export class ExportDialog extends Modal {
 	private destination: ExportProfile["output"]["destination"];
 	private incremental: ExportProfile["output"]["incremental"];
 	private copyToClipboard: boolean;
+	private focus: string;
+	private focusMaxNotes: number;
 	private folders: string[] = [];
 	private running = false;
 	/** Guards against a stale scope estimate overwriting a newer one. */
@@ -49,6 +51,8 @@ export class ExportDialog extends Modal {
 		this.destination = this.profile.output.destination;
 		this.incremental = this.profile.output.incremental;
 		this.copyToClipboard = this.profile.output.alsoCopyToClipboard;
+		this.focus = this.profile.filters.focus?.query ?? "";
+		this.focusMaxNotes = this.profile.filters.focus?.maxNotes ?? 30;
 	}
 
 	onOpen(): void {
@@ -70,6 +74,8 @@ export class ExportDialog extends Modal {
 					this.destination = next.output.destination;
 					this.incremental = next.output.incremental;
 					this.copyToClipboard = next.output.alsoCopyToClipboard;
+					this.focus = next.filters.focus?.query ?? "";
+					this.focusMaxNotes = next.filters.focus?.maxNotes ?? 30;
 					this.renderSummary();
 				});
 			});
@@ -97,6 +103,26 @@ export class ExportDialog extends Modal {
 					}
 				});
 			});
+
+		new Setting(contentEl)
+			.setName("Topic focus")
+			.setDesc("Optional: rank the notes against a topic and export only the best matches.")
+			.addText((text) =>
+				text.setValue(this.focus).setPlaceholder("e.g. retrieval evaluation").onChange((value) => {
+					this.focus = value;
+				}),
+			)
+			.addExtraButton((button) =>
+				button
+					.setIcon("magnifying-glass")
+					.setTooltip("How many notes to keep")
+					.onClick(() => {
+						const next = window.prompt("Keep how many of the best-matching notes? (0 = no cap)", String(this.focusMaxNotes));
+						if (next === null) return;
+						const parsed = Number.parseInt(next, 10);
+						if (Number.isFinite(parsed) && parsed >= 0) this.focusMaxNotes = parsed;
+					}),
+			);
 
 		new Setting(contentEl)
 			.setName("Destination")
@@ -150,6 +176,15 @@ export class ExportDialog extends Modal {
 				text: `Profile folders: ${this.profile.targets.join(", ")}`,
 			});
 		}
+		const focus = this.focus.trim();
+		if (focus !== "") {
+			this.summaryEl.createEl("p", {
+				cls: "cve-hint",
+				text: `Topic focus: “${focus}”${
+					this.focusMaxNotes > 0 ? ` — up to ${formatCount(this.focusMaxNotes)} note(s)` : ""
+				}`,
+			});
+		}
 		// A scope estimate costs one cached file listing and answers the first
 		// question a user has: how big is this export going to be?
 		const scopeEl = this.summaryEl.createEl("p", { cls: "cve-hint" });
@@ -198,9 +233,14 @@ export class ExportDialog extends Modal {
 	}
 
 	private submit(mode: "export" | "preview"): void {
+		const query = this.focus.trim();
 		const profile: ExportProfile = {
 			...this.profile,
 			targets: this.target === "" ? this.profile.targets : [this.target],
+			filters: {
+				...this.profile.filters,
+				focus: query === "" ? null : { query, maxNotes: this.focusMaxNotes },
+			},
 			output: {
 				...this.profile.output,
 				destination: this.destination,

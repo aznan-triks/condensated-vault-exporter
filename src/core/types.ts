@@ -214,6 +214,18 @@ export interface FilterOptions {
 	 * everything it connects to"). `null` exports the whole selection.
 	 */
 	neighbourhood: NeighbourhoodFilter | null;
+	/**
+	 * Rank the selection against a free-text topic and keep the best slice
+	 * ("everything I have written that bears on X"). `null` keeps everything.
+	 */
+	focus: FocusFilter | null;
+}
+
+export interface FocusFilter {
+	/** Free text: "retrieval evaluation", "kubernetes upgrades"… */
+	query: string;
+	/** How many of the best-matching notes to keep (0 = no cap). */
+	maxNotes: number;
 }
 
 export type OrderBy =

@@ -1407,3 +1407,66 @@ describe("credential scan", () => {
 		expect(result.warnings.join(" ")).not.toContain("credential");
 	});
 });
+
+describe("topic focus", () => {
+	const vault = () => [
+		makeFile(
+			"projects/reranking.md",
+			note(
+				"Reranking notes",
+				"Cross-encoder reranking improves precision after the first retrieval pass, at the cost of latency. This note compares the two-stage ranking pipeline with the single-stage one.",
+			),
+		),
+		makeFile(
+			"daily/2026-02-01.md",
+			note(
+				"Monday",
+				"Shopping list and a reminder to call the plumber. The retrieval project came up in passing during lunch with the team.",
+			),
+		),
+		makeFile(
+			"garden/compost.md",
+			note("Compost bins", "Turn the compost every fortnight and keep the greens and browns balanced in the bin."),
+		),
+	];
+
+	it("keeps the best-matching notes and reports why", async () => {
+		const focus = { query: "reranking retrieval", maxNotes: 2 };
+		const profile = testProfile({ filters: { ...testProfile().filters, focus } } as never);
+		const result = await runExport({ profile }, { vault: fakeVault(vault()), sink: memorySink() });
+		expect(result.stats.kept).toBe(2);
+		const sources = result.parts.flatMap((part) => part.sources);
+		expect(sources).toContain("projects/reranking.md");
+		expect(sources).not.toContain("garden/compost.md");
+		expect(result.warnings.join(" ")).toContain("🎯 Focused on “reranking retrieval”");
+	});
+
+	it("warns instead of writing an empty bundle when nothing matches", async () => {
+		const focus = { query: "quantum chromodynamics", maxNotes: 5 };
+		const profile = testProfile({ filters: { ...testProfile().filters, focus } } as never);
+		const result = await runExport({ profile }, { vault: fakeVault(vault()), sink: memorySink() });
+		expect(result.stats.kept).toBe(0);
+		expect(result.warnings.join(" ")).toContain("Nothing in the selection matches");
+	});
+
+	it("ranks a title match above everything else", async () => {
+		const query = { query: "reranking", maxNotes: 1 };
+		const profile = testProfile({ filters: { ...testProfile().filters, focus: query } } as never);
+		const result = await runExport({ profile }, { vault: fakeVault(vault()), sink: memorySink() });
+		const sources = result.parts.flatMap((part) => part.sources);
+		expect(sources).toContain("projects/reranking.md");
+		expect(sources).not.toContain("daily/2026-02-01.md");
+	});
+
+	it("prefers a note that covers more of the query", async () => {
+		const files = [
+			makeFile("a.md", note("Storage", "The storage layer keeps the retrieval index warm and the ranking tables small.")),
+			makeFile("b.md", note("Ranking", "Ranking uses the retrieval scores and the storage layout to order results.")),
+		];
+		const profile = testProfile({ filters: { ...testProfile().filters, focus: { query: "retrieval ranking", maxNotes: 1 } } } as never);
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		const sources = result.parts.flatMap((part) => part.sources);
+		expect(sources).toContain("b.md");
+		expect(sources).not.toContain("a.md");
+	});
+});

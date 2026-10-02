@@ -369,6 +369,29 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Focus on a topic")
+			.setDesc("Free text, e.g. “retrieval evaluation”. Only the notes that match it best are exported; leave empty for everything.")
+			.addText((text) =>
+				text.setValue(profile.filters.focus?.query ?? "").onChange(async (value) => {
+					const query = value.trim();
+					profile.filters.focus = query === "" ? null : { query, maxNotes: profile.filters.focus?.maxNotes ?? 30 };
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Focus: maximum notes")
+			.setDesc("How many of the best-matching notes to keep (0 = no cap).")
+			.addText((text) =>
+				text.setValue(String(profile.filters.focus?.maxNotes ?? 30)).onChange(async (value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed) || parsed < 0) return;
+					if (profile.filters.focus) profile.filters.focus.maxNotes = parsed;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Focus on a note's neighbourhood")
 			.setDesc("Vault path of a note; leave empty to export the whole selection. Also available by right-clicking a note.")
 			.addText((text) =>

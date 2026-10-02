@@ -52,6 +52,7 @@ import { BoilerplateAccumulator, lineHasDigits, normalizeLine, stripBoilerplate 
 import { detectDuplicates, type DedupeOutcome } from "./condense/dedupe";
 import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
+import { rankByFocus } from "./intel/focus";
 import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
 import { scanForSecrets } from "./intel/safety";
@@ -243,6 +244,35 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			const count = before - selected.length;
 			return count > 0 ? [`${count} near-empty note(s) were dropped as stubs.`] : [];
 		})());
+	}
+
+	// Topic focus: rank the selection against the query and keep the best slice.
+	// The ranking runs on the analysis (no extra reads), after duplicates and
+	// stubs are gone, so a note that survives is never one that would have been
+	// dropped anyway.
+	const focus = profile.filters.focus;
+	if (focus && focus.query.trim() !== "") {
+		progress({ phase: "condense", progress: 0.06, message: `Ranking notes for “${focus.query}”…` });
+		check();
+		const keyTerms = buildKeyTerms(selected);
+		const ranked = rankByFocus(selected, keyTerms, focus.query, focus.maxNotes);
+		if (ranked.matched === 0) {
+			warnings.push(
+				`🎯 Nothing in the selection matches “${focus.query}” — the bundle contains only the corpus map. Check the spelling, or clear the focus to export everything.`,
+			);
+		} else {
+			const sample = ranked.kept.slice(0, 3).join(", ");
+			warnings.push(
+				`🎯 Focused on “${focus.query}”: ${ranked.kept.length} of ${selected.length} note(s), best matches ${sample}.`,
+			);
+		}
+		if (ranked.unknown.length > 0) {
+			warnings.push(
+				`The focus term(s) ${ranked.unknown.map((term) => `“${term}”`).join(", ")} do not appear anywhere in the selection.`,
+			);
+		}
+		const kept = new Set(ranked.kept);
+		selected = selected.filter((doc) => kept.has(doc.file.path));
 	}
 
 	// Incremental delta: only export what changed since the last run.

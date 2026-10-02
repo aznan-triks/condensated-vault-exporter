@@ -97,6 +97,26 @@ rather than silently dropped, the same data is exposed as `links.to` /
 `links.from` arrays in JSON and JSONL, and the export report ends with a
 "How the notes hang together" section listing hubs and orphans.
 
+### Export what the vault knows about a topic
+
+Folders and tags assume the vault is already organised. A topic filter needs
+nothing: type *retrieval evaluation* into the export dialog (or set
+`filters.focus` on a profile) and the exporter ranks every note against the
+query and exports only the best slice — usually 20 to 50 notes that a model
+can actually hold in its head:
+
+```text
+🎯 Focused on “retrieval evaluation”: 24 of 812 note(s), best matches
+   Projects/Atlas evaluation.md, Notes/Reranking ideas.md, MOCs/Retrieval MOC.md.
+```
+
+The ranking reuses the corpus TF-IDF that already powers the knowledge map,
+with a bonus when the term shows up in the title, the tags, the path or a
+heading — a note called *Reranking notes* beats a daily note that mentions the
+word once — and a coverage bonus when several query words match. Terms that do
+not occur anywhere are reported instead of silently returning nothing, and a
+query with no match at all warns rather than writing an empty bundle.
+
 ### Export a note's neighbourhood
 
 Right-click any note → **Export this note and its links** (or *…neighbourhood
