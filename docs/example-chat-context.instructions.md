@@ -33,7 +33,7 @@ You are given 12 notes from a personal knowledge base (4.0 kB of Markdown, ~866 
 - Which notes are unlinked and might need to be connected to the rest?
 - What changed most recently, around 2026-01-20?
 
-**Vocabulary that matters in this corpus.** atlas, bm25, answers, retrieval, embeddings, afternoon, lists, mrr, quality, questions, coffee, annotated, boundary, content, cases, always, batch, controls.
+**Vocabulary that matters in this corpus.** atlas, bm25, answers, retrieval, embeddings, afternoon, lists, mrr, quality, questions, coffee, annotated.
 
 ---
 

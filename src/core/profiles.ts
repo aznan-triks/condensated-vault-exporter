@@ -127,6 +127,7 @@ export const DEFAULT_OUTPUT: OutputOptions = {
 	destination: "vault",
 	folder: "Exports",
 	fileNameTemplate: "{{folder}} - {{date:}} {{profile}}",
+	mirrorFolders: false,
 	incremental: "off",
 	openAfterExport: false,
 	alsoCopyToClipboard: false,
@@ -288,7 +289,13 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 					includeGlossary: false,
 					manifestSidecar: true,
 				},
-				output: { ...DEFAULT_OUTPUT, folder: "Exports/Mirror", fileNameTemplate: "{{title}}" },
+				output: {
+					...DEFAULT_OUTPUT,
+					folder: "Exports/Mirror",
+					// The whole point of a mirror: the file is the note.
+					fileNameTemplate: "{{note_path}}",
+					mirrorFolders: true,
+				},
 			}),
 	},
 	{

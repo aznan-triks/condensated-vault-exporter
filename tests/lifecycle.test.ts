@@ -630,3 +630,20 @@ describe("delta reporting", () => {
 		expect((second.result?.delta?.unchanged ?? 0)).toBeGreaterThan(0);
 	});
 });
+
+describe("nested output folders", () => {
+	it("creates every ancestor folder a mirror export needs", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const profile = plugin.settings.profiles.find((p) => p.id === "mirror")!;
+		profile.targets = ["daily"];
+		const outcome = await plugin.runner.run(profile, {});
+		expect(outcome.ok).toBe(true);
+		const paths = Array.from(fake.vault.files.keys()).filter((path) => path.startsWith("Exports/Mirror/"));
+		expect(paths.length).toBeGreaterThanOrEqual(3);
+		// One file per note, named after the note, inside the mirrored folder.
+		expect(paths.some((path) => path === "Exports/Mirror/daily/2026-01-01.md")).toBe(true);
+		expect(fake.vault.folders.has("Exports/Mirror/daily")).toBe(true);
+	});
+});

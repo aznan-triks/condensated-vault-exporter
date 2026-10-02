@@ -125,6 +125,25 @@ changed, and the analysis cache means only edited notes are re-analysed. The
 status bar reports the refresh; nothing is opened or announced unless you asked
 for it.
 
+### One file per note
+
+The **Clean mirror** profile writes one processed file per note, named after the
+note and keeping the vault's folder structure:
+
+```
+Exports/Mirror/
+  Projects/Atlas ranking.md
+  Reference/BM25.md
+  Daily/2026-01-15.md
+```
+
+The file name is a template, and per-note exports gain `{{note_path}}`,
+`{{note_folder}}`, `{{note_title}}` and `{{note_slug}}` next to the usual
+`{{folder}}`, `{{profile}}`, `{{date}}`, `{{part}}` and `{{volume}}` variables —
+so `{{note_folder}}/{{note_title}}` reproduces the tree even without the mirror
+toggle. Segments are sanitized, so `..` in a template can never escape the
+output folder.
+
 ### Volumes: when the corpus does not fit one source
 
 NotebookLM accepts 50 sources per notebook; a 200-part RAG-style export cannot be

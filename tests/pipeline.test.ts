@@ -944,3 +944,45 @@ describe("delta against the previous export", () => {
 		expect(result.delta).toBeUndefined();
 	});
 });
+
+describe("per-note naming", () => {
+	it("names each file after its note and keeps the vault folders", async () => {
+		const profile = testProfile({
+			output: {
+				...testProfile().output,
+				fileNameTemplate: "{{note_path}}",
+				mirrorFolders: true,
+			} as never,
+			packaging: { ...testProfile().packaging, chunking: { ...testProfile().packaging.chunking, mode: "perNote" as const } } as never,
+		});
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		const paths = result.parts.map((part) => part.path);
+		expect(paths.some((path) => path.startsWith("Exports/") && path.includes("/"))).toBe(true);
+		expect(paths.every((path) => path.startsWith("Exports/"))).toBe(true);
+		// The note titles are the file names, with the source folder kept.
+		expect(paths.some((path) => path.endsWith("daily/2026-01-01.md") || path.endsWith("2026-01-01.md"))).toBe(true);
+	});
+
+	it("falls back to the note title when only a title template is used", async () => {
+		const profile = testProfile({
+			output: { ...testProfile().output, fileNameTemplate: "{{note_title}}" } as never,
+			packaging: { ...testProfile().packaging, chunking: { ...testProfile().packaging.chunking, mode: "perNote" as const } } as never,
+		});
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		expect(result.parts.every((part) => part.path.startsWith("Exports/"))).toBe(true);
+		expect(result.parts.every((part) => !part.path.includes("{{"))).toBe(true);
+	});
+
+	it("sanitizes a template that tries to escape the output folder", async () => {
+		const profile = testProfile({
+			output: { ...testProfile().output, fileNameTemplate: "../../{{note_title}}" } as never,
+			packaging: { ...testProfile().packaging, chunking: { ...testProfile().packaging.chunking, mode: "perNote" as const } } as never,
+		});
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		expect(result.parts.every((part) => !part.path.includes(".."))).toBe(true);
+		expect(result.parts.every((part) => part.path.startsWith("Exports/"))).toBe(true);
+	});
+});

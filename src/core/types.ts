@@ -380,8 +380,17 @@ export interface OutputOptions {
 	destination: OutputDestination;
 	/** Vault-relative folder, or absolute path when destination is `filesystem`. */
 	folder: string;
-	/** Supports `{{folder}}`, `{{profile}}`, `{{date:FORMAT}}`, `{{part}}`, `{{total}}`. */
+	/**
+	 * Supports `{{folder}}`, `{{profile}}`, `{{date:FORMAT}}`, `{{part}}`,
+	 * `{{total}}`, `{{volume}}` — and, for one-file-per-note exports,
+	 * `{{note_path}}`, `{{note_folder}}`, `{{note_title}}` and `{{note_slug}}`.
+	 */
 	fileNameTemplate: string;
+	/**
+	 * One directory per note, mirroring the vault tree (per-note exports).
+	 * `{{note_path}}` in the file name template implies the same layout.
+	 */
+	mirrorFolders: boolean;
 	/** Only export notes added/changed since the last run of this profile. */
 	incremental: IncrementalMode;
 	/** Reveal the produced file(s) after the export. */

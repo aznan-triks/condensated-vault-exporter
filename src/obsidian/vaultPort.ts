@@ -156,11 +156,19 @@ export class VaultSinkPort implements SinkPort {
 	private async ensureFolder(target: string): Promise<void> {
 		const folder = target.slice(0, target.lastIndexOf("/"));
 		if (folder === "" || folder === target) return;
-		if (await this.app.vault.adapter.exists(folder)) return;
-		await this.app.vault.createFolder(folder).catch(async () => {
-			// Another part of the run may have created it first: ignore then.
-			if (!(await this.app.vault.adapter.exists(folder))) throw new Error(`Could not create folder ${folder}`);
-		});
+		// `createFolder` only makes the last segment, and a mirror export can
+		// nest several levels deep (`Exports/Mirror/Daily/2026/x.md`), so every
+		// ancestor is created in order.
+		const segments = folder.split("/");
+		let current = "";
+		for (const segment of segments) {
+			current = current === "" ? segment : `${current}/${segment}`;
+			if (await this.app.vault.adapter.exists(current)) continue;
+			await this.app.vault.createFolder(current).catch(async () => {
+				// Another part of the run may have created it first: ignore then.
+				if (!(await this.app.vault.adapter.exists(current))) throw new Error(`Could not create folder ${current}`);
+			});
+		}
 	}
 }
 

@@ -720,8 +720,20 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Mirror the folder structure")
+			.setDesc("One note per file: recreate the vault's folders inside the export folder.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.output.mirrorFolders).onChange(async (value) => {
+					profile.output.mirrorFolders = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("File name")
-			.setDesc("Variables: {{folder}}, {{profile}}, {{date:YYYY-MM-DD}}, {{part}}, {{total}}.")
+			.setDesc(
+				"Variables: {{folder}}, {{profile}}, {{date:YYYY-MM-DD}}, {{part}}, {{total}} — and, for one note per file, {{note_path}}, {{note_folder}}, {{note_title}}, {{note_slug}}.",
+			)
 			.addText((text) =>
 				text.setValue(profile.output.fileNameTemplate).onChange(async (value) => {
 					profile.output.fileNameTemplate = value;

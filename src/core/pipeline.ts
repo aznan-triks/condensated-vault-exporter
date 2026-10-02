@@ -25,15 +25,17 @@ import {
 import { ExportAbortedError } from "./types";
 import { hash32 } from "./util";
 import {
+	applyTemplate,
+	basename,
 	formatCount,
 	joinPath,
 	mapLimit,
 	naturalCompare,
 	normalizeVaultPath,
+	parentFolder,
 	sanitizeFileName,
+	slugify,
 	stripExtension,
-	basename,
-	applyTemplate,
 	unique,
 } from "./util";
 import { estimateTokens } from "./tokens";
@@ -657,7 +659,18 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		profile.packaging.instructionsFile && instructionsText
 			? joinOutputPath(
 					{ ...profile.output, ...(request.outputOverride ?? {}) },
-					planOutputNames(profile, bundleTitle, parts.length, generatedAt, volumeCount, volumeSize)[0]
+					sanitizeRelativePath(
+						planOutputNames(
+							profile,
+							bundleTitle,
+							parts.length,
+							generatedAt,
+							volumeCount,
+							volumeSize,
+							parts.map((part) => part.sources),
+						)[0],
+						"bundle",
+					)
 						.replace(/-v\d+(\.[^.]+)$/, "$1")
 						.replace(/\.[^.]+$/, "") + ".instructions.md",
 				)
@@ -696,7 +709,15 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	if (request.mode !== "preview") {
 		check();
 		progress({ phase: "write", progress: 0.9, message: "Writing the bundle…" });
-		const names = planOutputNames(profile, bundleTitle, parts.length, generatedAt, volumeCount, volumeSize);
+		const names = planOutputNames(
+			profile,
+			bundleTitle,
+			parts.length,
+			generatedAt,
+			volumeCount,
+			volumeSize,
+			parts.map((part) => part.sources),
+		);
 		const targets = names.map((name) => joinOutputPath(output, name));
 		if (deps.beforeWrite && !(await deps.beforeWrite(targets))) {
 			throw new ExportAbortedError("The export was aborted before writing any file.");
@@ -714,7 +735,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 
 		if (profile.packaging.manifestSidecar && parts.length > 0) {
 			check();
-			const manifestPath = joinOutputPath(output, names[0].replace(/\.md$|\.txt$|\.jsonl?$|\.xml$/i, "") + ".manifest.json");
+			const manifestPath = joinOutputPath(
+				output,
+				sanitizeRelativePath(names[0], "bundle").replace(/\.md$|\.txt$|\.jsonl?$|\.xml$/i, "") + ".manifest.json",
+			);
 			written.push(await deps.sink.write(manifestPath, JSON.stringify(withDelta(manifest, delta), null, 2)));
 		}
 
@@ -728,7 +752,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			// A small index file makes a 50-part bundle navigable.
 			const indexPath = joinOutputPath(
 				output,
-				names[0].replace(/-v\d+(\.[^.]+)$/, "$1").replace(/\.[^.]+$/, "") + ".index.md",
+				sanitizeRelativePath(names[0], "bundle").replace(/-v\d+(\.[^.]+)$/, "$1").replace(/\.[^.]+$/, "") + ".index.md",
 			);
 			written.push(await deps.sink.write(indexPath, renderPartIndex(profile, bundleTitle, parts, generatedAt)));
 		}
@@ -1201,33 +1225,42 @@ export function planOutputNames(
 	generatedAt: Date,
 	volumeCount = 1,
 	volumeSize = partCount,
+	/** Source path of each part, in order (used for `{{note_*}}` templates). */
+	sources: string[][] = [],
 ): string[] {
 	const extension = extensionFor(profile.packaging.format);
 	const variables = templateVariables(profile, bundleTitle, generatedAt);
 	const base = applyTemplate(profile.output.fileNameTemplate, { ...variables, part: "", total: String(partCount) }).trim();
 	const withExt = base.toLowerCase().endsWith(extension) ? base : `${base}${extension}`;
 	const usesVolumeVariable = /\{\{\s*volume/.test(profile.output.fileNameTemplate);
+	const usesNoteVariable = /\{\{\s*note_/.test(profile.output.fileNameTemplate);
 	const names: string[] = [];
 	for (let i = 0; i < partCount; i++) {
 		const volume = volumeCount > 1 ? Math.floor(i / Math.max(1, volumeSize)) + 1 : 1;
-		if (partCount === 1) {
+		// A one-note part can be named after that note; folders are preserved
+		// when the template or the profile asks for it.
+		const source = sources[i]?.length === 1 ? sources[i][0] : undefined;
+		const noteVariables = source !== undefined ? noteTemplateVariables(source, profile) : undefined;
+		const single = partCount === 1 && !usesNoteVariable;
+		if (single) {
 			names.push(sanitizeFileName(withExt, `bundle${extension}`));
 			continue;
 		}
-		const numbered = applyTemplate(profile.output.fileNameTemplate, {
+		const rendered = applyTemplate(profile.output.fileNameTemplate, {
 			...variables,
 			part: String(i + 1),
 			part_padded: String(i + 1).padStart(2, "0"),
 			total: String(partCount),
 			volume: String(volume),
 			volume_total: String(volumeCount),
+			...(noteVariables ?? {}),
 		}).trim();
-		let stem = numbered.toLowerCase().endsWith(extension) ? numbered : `${numbered}${extension}`;
+		let stem = rendered.toLowerCase().endsWith(extension) ? rendered : `${rendered}${extension}`;
 		// Volumes must never collide, even with a template that ignores them.
 		if (volumeCount > 1 && !usesVolumeVariable) {
 			stem = stem.replace(new RegExp(`${escapeRegExp(extension)}$`), `-v${volume}${extension}`);
 		}
-		names.push(sanitizeFileName(stem, `bundle-${i + 1}${extension}`));
+		names.push(sanitizeRelativePath(stem, `bundle-${i + 1}${extension}`));
 	}
 	// Guarantee uniqueness even with a template that ignores {{part}}.
 	const seen = new Map<string, number>();
@@ -1237,6 +1270,33 @@ export function planOutputNames(
 		if (count === 0) return name;
 		return name.replace(/(\.[^.]+)$/, `-${count + 1}$1`);
 	});
+}
+
+/** `{{note_*}}` variables for a single source note. */
+function noteTemplateVariables(path: string, profile: ExportProfile): Record<string, string> {
+	const name = basename(path);
+	const stem = stripExtension(name);
+	const folder = profile.output.mirrorFolders ? parentFolder(path) : "";
+	return {
+		note_path: joinPath(folder, name),
+		note_folder: folder,
+		note_title: sanitizeFileName(stem, "note"),
+		note_slug: slugify(stem) || "note",
+	};
+}
+
+/**
+ * Sanitizes each segment of a relative path so a template can produce
+ * sub-folders (`{{note_folder}}/{{note_title}}`) without escaping the output
+ * directory or creating illegal names.
+ */
+function sanitizeRelativePath(path: string, fallback: string): string {
+	const segments = path
+		.split("/")
+		.map((segment) => sanitizeFileName(segment.replace(/^[.]+$/, ""), ""))
+		.filter((segment) => segment !== "");
+	if (segments.length === 0) return sanitizeFileName(fallback, "bundle");
+	return segments.join("/");
 }
 
 function templateVariables(profile: ExportProfile, bundleTitle: string, generatedAt: Date): Record<string, string> {
