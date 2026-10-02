@@ -576,7 +576,26 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	if (deltaNote) warnings.push(`🔄 ${deltaNote}`);
 
 	// ---------------------------------------------------------------- write
-	const manifest = buildManifest(profile, bundle.variables.title, stats, parts, generatedAt, dedupe, boilerplate.samples.length, deps, warnings);
+	// Per-note content hashes: they make the sidecar a real record of what was
+	// exported (and of the exact revision of each note).
+	const bundledHashes: Record<string, string> = {};
+	for (const note of rendered) {
+		const analysis = analysisByPath.get(note.path);
+		if (analysis) bundledHashes[note.path] = analysis.hash;
+	}
+	const manifest = buildManifest(
+		profile,
+		bundle.variables.title,
+		stats,
+		parts,
+		generatedAt,
+		dedupe,
+		boilerplate.samples.length,
+		deps,
+		warnings,
+		bundledHashes,
+		started,
+	);
 	const written: string[] = [];
 	const output = { ...profile.output, ...(request.outputOverride ?? {}) };
 
@@ -1239,10 +1258,11 @@ function buildManifest(
 	boilerplateSamples: number,
 	deps: ExportDeps,
 	warnings: string[],
+	hashes: Record<string, string>,
+	startedAt: number,
 ): ExportManifest {
 	void title;
 	void boilerplateSamples;
-	const hashes: Record<string, string> = {};
 	return {
 		version: 1,
 		plugin: { id: "condensated-vault-exporter", version: deps.pluginVersion ?? "1.0.0" },
@@ -1254,7 +1274,7 @@ function buildManifest(
 		stats,
 		roots: profile.targets,
 		parts: parts.map((p) => ({ index: p.index, path: p.path, sources: p.sources.length, words: p.words, tokens: p.tokens })),
-		durationMs: 0,
+		durationMs: (deps.now?.() ?? Date.now()) - startedAt,
 		warnings: [...warnings],
 		duplicates: dedupe.groups.length,
 	};
