@@ -1,0 +1,500 @@
+import { describe, expect, it } from "vitest";
+import { computeProfileStatus, describeChanges, isStale } from "../src/core/state/status";
+import { collectAttachments } from "../src/core/intel/attachments";
+import { createState } from "../src/core/state/manifest";
+import { createDefaultProfiles } from "../src/core/profiles";
+import { groupSecretFindings, scanForSecrets } from "../src/core/intel/safety";
+import { matchGlob, matchAny, isValidGlob } from "../src/core/glob";
+import { parseFrontmatter, stringifyFrontmatter, asStringArray, tagMatches } from "../src/core/frontmatter";
+import { estimateTokens, countTokens } from "../src/core/tokens";
+import { hash32, naturalCompare, sanitizeFileName, slugify, normalizeVaultPath, mapLimit } from "../src/core/util";
+import { splitSentences, scanLines, fenceRanges, stripInlineMarkup } from "../src/core/markdown/syntax";
+import { extractLinksFromLine, resolveLinkTarget } from "../src/core/markdown/links";
+import { analyzeDocument, compareSignatures, signatureSimilarity } from "../src/core/markdown/analyzer";
+
+describe("glob", () => {
+	it("matches star patterns anywhere in the path", () => {
+		expect(matchGlob("*.md", "notes/a.md")).toBe(true);
+		expect(matchGlob("*.md", "a.md")).toBe(true);
+		expect(matchGlob("*.md", "notes/a.txt")).toBe(false);
+	});
+
+	it("supports double star", () => {
+		expect(matchGlob("notes/**/*.md", "notes/a/b/c.md")).toBe(true);
+		expect(matchGlob("notes/**", "notes/a/b.md")).toBe(true);
+		expect(matchGlob("**/*.md", "deep/nested/x.md")).toBe(true);
+	});
+
+	it("supports folders, classes and alternation", () => {
+		expect(matchGlob("drafts/", "drafts/a.md")).toBe(true);
+		expect(matchGlob("drafts/", "drafts")).toBe(true);
+		expect(matchGlob("*.m{d,arkdown}", "x.md")).toBe(true);
+		expect(matchGlob("*.m{d,arkdown}", "x.markdown")).toBe(true);
+		expect(matchGlob("file[0-9].md", "file3.md")).toBe(true);
+		expect(matchGlob("file[!0-9].md", "file3.md")).toBe(false);
+	});
+
+	it("handles negation with last-match-wins", () => {
+		expect(matchAny(["**/*.md", "!drafts/**"], "drafts/x.md")).toBe(false);
+		expect(matchAny(["**/*.md", "!drafts/**"], "notes/x.md")).toBe(true);
+		expect(matchAny(["!drafts/**"], "notes/x.md")).toBe(false);
+	});
+
+	it("validates patterns", () => {
+		expect(isValidGlob("**/*.md")).toBe(true);
+		expect(isValidGlob("*.[")).toBe(true);
+	});
+});
+
+describe("frontmatter", () => {
+	it("parses scalars, lists and nested maps", () => {
+		const text = [
+			"---",
+			"title: My note",
+			"tags:",
+			"  - alpha",
+			"  - beta",
+			"created: 2026-01-02",
+			"score: 12.5",
+			"draft: false",
+			"nested:",
+			"  key: value",
+			"inline: [1, 2, 3]",
+			"quoted: \"hello: world\"",
+			"empty:",
+			"---",
+			"Body text",
+		].join("\n");
+		const fm = parseFrontmatter(text);
+		expect(fm.present).toBe(true);
+		expect(fm.data.title).toBe("My note");
+		expect(asStringArray(fm.data.tags)).toEqual(["alpha", "beta"]);
+		expect(fm.data.created).toBe("2026-01-02");
+		expect(fm.data.score).toBe(12.5);
+		expect(fm.data.draft).toBe(false);
+		expect((fm.data.nested as Record<string, unknown>).key).toBe("value");
+		expect(fm.data.inline).toEqual([1, 2, 3]);
+		expect(fm.data.quoted).toBe("hello: world");
+		expect(fm.data.empty).toBeNull();
+		expect(fm.endLine).toBe(14);
+	});
+
+	it("tolerates malformed and unterminated blocks", () => {
+		expect(parseFrontmatter("---\ntitle: x").error).toBeTruthy();
+		expect(parseFrontmatter("no frontmatter").present).toBe(false);
+		expect(parseFrontmatter("---\n---\n").data).toEqual({});
+	});
+
+	it("round-trips through the serializer", () => {
+		const data = { title: "A: B", tags: ["x", "y"], meta: { a: 1 }, flag: true };
+		const raw = stringifyFrontmatter(data);
+		const parsed = parseFrontmatter(`---\n${raw}\n---\n`);
+		expect(parsed.data.title).toBe("A: B");
+		expect(parsed.data.tags).toEqual(["x", "y"]);
+		expect(parsed.data.flag).toBe(true);
+		expect((parsed.data.meta as Record<string, unknown>).a).toBe(1);
+	});
+});
+
+describe("tokens", () => {
+	it("scales with text length and stays in a plausible range", () => {
+		const text = "The quick brown fox jumps over the lazy dog. ".repeat(20);
+		const stats = estimateTokens(text);
+		const words = text.trim().split(/\s+/).length;
+		expect(stats.tokens).toBeGreaterThan(words * 0.9);
+		expect(stats.tokens).toBeLessThan(words * 2.2);
+	});
+
+	it("counts CJK characters closer to one token each", () => {
+		const cjk = "这是一个测试文本".repeat(10);
+		expect(countTokens(cjk)).toBeGreaterThan(cjk.length * 0.7);
+	});
+
+	it("penalizes dense symbol soup", () => {
+		const code = "{}()[]<>=+-*/%$#@!&|^~`;:,.?".repeat(10);
+		expect(countTokens(code)).toBeGreaterThan(0);
+	});
+});
+
+describe("util", () => {
+	it("hashes deterministically and distinguishes content", () => {
+		expect(hash32("hello")).toBe(hash32("hello"));
+		expect(hash32("hello")).not.toBe(hash32("hello!"));
+	});
+
+	it("normalizes paths", () => {
+		expect(normalizeVaultPath("/a//b/c.md")).toBe("a/b/c.md");
+		expect(normalizeVaultPath("a\\b\\c.md")).toBe("a/b/c.md");
+	});
+
+	it("sorts naturally", () => {
+		const sorted = ["Note 10", "Note 2", "Note 1"].sort(naturalCompare);
+		expect(sorted).toEqual(["Note 1", "Note 2", "Note 10"]);
+	});
+
+	it("sanitizes file names", () => {
+		expect(sanitizeFileName("a/b:c*d?")).toBe("a-b-c-d");
+		expect(sanitizeFileName("   ")).toBe("export");
+	});
+
+	it("slugifies", () => {
+		expect(slugify("My Heading (2026)")).toBe("my-heading-2026");
+	});
+
+	it("maps with a concurrency limit and keeps order", async () => {
+		const result = await mapLimit([1, 2, 3, 4, 5], 2, async (n) => n * 2);
+		expect(result).toEqual([2, 4, 6, 8, 10]);
+	});
+});
+
+describe("markdown syntax", () => {
+	it("detects fenced blocks including unclosed ones", () => {
+		const text = ["intro", "```js", "const a = 1;", "```", "after", "~~~", "x", "~~~"].join("\n");
+		const lines = scanLines(text);
+		expect(lines[1].kind).toBe("fence");
+		expect(lines[2].kind).toBe("code");
+		expect(lines[3].kind).toBe("fence");
+		expect(lines[4].kind).toBe("text");
+		expect(fenceRanges(text).length).toBe(2);
+		const unclosed = scanLines("```\ncode only");
+		expect(unclosed[1].kind).toBe("code");
+		expect(fenceRanges("```\ncode only")).toHaveLength(1);
+	});
+
+	it("splits sentences without breaking abbreviations badly", () => {
+		const sentences = splitSentences("Hello world. This is a test! Is it? Yes.");
+		expect(sentences.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it("strips inline markup", () => {
+		expect(stripInlineMarkup("**bold** and [[Link|alias]] and `code`")).toBe("bold and alias and code");
+	});
+});
+
+describe("links", () => {
+	it("extracts wikilinks with aliases, headings and blocks", () => {
+		const { links, tags } = extractLinksFromLine("- [[Note#Heading|Alias]] and ![[Embed]] #tag/sub");
+		expect(links).toHaveLength(2);
+		expect(links[0]).toMatchObject({ target: "Note", heading: "Heading", alias: "Alias", isEmbed: false });
+		expect(links[1]).toMatchObject({ target: "Embed", isEmbed: true });
+		expect(tags).toContain("tag/sub");
+	});
+
+	it("ignores links inside inline code", () => {
+		const { links } = extractLinksFromLine("use `[[NotALink]]` here");
+		expect(links).toHaveLength(0);
+	});
+
+	it("resolves by name, folder and closest path", () => {
+		const index = new Map([
+			["folder/a.md", "folder/a.md"],
+			["other/a.md", "other/a.md"],
+			["b.md", "b.md"],
+		]);
+		expect(resolveLinkTarget("a", "folder/x.md", index)).toBe("folder/a.md");
+		expect(resolveLinkTarget("b", "folder/x.md", index)).toBe("b.md");
+		expect(resolveLinkTarget("missing", "x.md", index)).toBeUndefined();
+	});
+});
+
+describe("analyzer", () => {
+	it("extracts structure, stats and signatures", () => {
+		const file = {
+			path: "notes/a.md",
+			name: "a.md",
+			folder: "notes",
+			ext: "md",
+			size: 500,
+			mtime: Date.now(),
+			ctime: Date.now(),
+		};
+		const text = [
+			"---",
+			"tags: [project, ideas]",
+			"---",
+			"# Title",
+			"",
+			"Some prose with a [[Link]] and #inline.",
+			"",
+			"## Section",
+			"More prose that is long enough to be counted properly by the analyzer.",
+		].join("\n");
+		const doc = analyzeDocument(file, text);
+		expect(doc.title).toBe("Title");
+		expect(doc.tags).toEqual(expect.arrayContaining(["project", "ideas", "inline"]));
+		expect(doc.headings.map((h) => h.text)).toEqual(["Title", "Section"]);
+		expect(doc.outgoing).toEqual(["Link"]);
+		expect(doc.stats.words).toBeGreaterThan(10);
+		expect(doc.topTerms.length).toBeGreaterThan(0);
+		expect(doc.signal).toBeGreaterThan(0);
+	});
+
+	it("estimates similarity between related documents", () => {
+		const file = (path: string) => ({ path, name: path, folder: "", ext: "md", size: 1, mtime: 0, ctime: 0 });
+		const shared = Array.from(
+			{ length: 60 },
+			(_, i) => `Gradient descent optimises parameters step ${i} by following the slope of the loss function.`,
+		).join(" ");
+		const a = analyzeDocument(file("a.md"), `${shared} Backpropagation computes those gradients efficiently.`);
+		const b = analyzeDocument(file("b.md"), `${shared} Regularisation keeps the weights from exploding.`);
+		const c = analyzeDocument(
+			file("c.md"),
+			Array.from({ length: 60 }, (_, i) => `Boiling water cooks pasta; the pot number ${i} holds sauce and basil.`).join(" "),
+		);
+		const ab = signatureSimilarity(a.shingles, b.shingles);
+		const ac = signatureSimilarity(a.shingles, c.shingles);
+		expect(ab).toBeGreaterThan(0.2);
+		expect(ab).toBeGreaterThan(ac);
+	});
+});
+
+describe("hashes", () => {
+	it("produces stable 16-character lowercase hex digests", async () => {
+		const { hash64, contentHash } = await import("../src/core/util");
+		for (const text of ["", "a", "hello world", "x".repeat(5000), "accents éàü and emoji 🚀"]) {
+			const digest = hash64(text);
+			expect(digest).toMatch(/^[0-9a-f]{16}$/);
+			expect(hash64(text)).toBe(digest); // deterministic
+			expect(contentHash(text)).toMatch(/^[0-9a-f]{32}$/);
+		}
+		// Different content, different digest.
+		const seen = new Set(Array.from({ length: 500 }, (_, i) => hash64(`note number ${i}`)));
+		expect(seen.size).toBe(500);
+	});
+
+	it("changes when a character changes", async () => {
+		const { contentHash } = await import("../src/core/util");
+		expect(contentHash("the quick brown fox")).not.toBe(contentHash("the quick brown fix"));
+	});
+});
+
+describe("splitting", () => {
+	it("cuts unbreakable runs down to the limit", async () => {
+		const { hardSplit } = await import("../src/core/pack/chunk");
+		const blob = "A".repeat(20_000); // no whitespace at all
+		const pieces = hardSplit(blob, 100);
+		expect(pieces.length).toBeGreaterThan(10);
+		for (const piece of pieces) expect(piece.length).toBeLessThanOrEqual(360);
+		expect(pieces.join("")).toBe(blob);
+	});
+
+	it("keeps words intact when splitting prose", async () => {
+		const { hardSplit } = await import("../src/core/pack/chunk");
+		const text = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
+		const pieces = hardSplit(text, 50);
+		expect(pieces.length).toBeGreaterThan(3);
+		for (const piece of pieces) {
+			expect(piece.startsWith("word")).toBe(true);
+			expect(piece.endsWith(" ")).toBe(false);
+		}
+		expect(pieces.join(" ").replace(/\s+/g, " ")).toBe(text.replace(/\s+/g, " "));
+	});
+
+	it("estimates containment from the signature and the shingle counts", () => {
+		const short = analyzeDocument(
+			{ path: "short.md", name: "short.md", folder: "", ext: "md", size: 0, mtime: 0, ctime: 0 },
+			`# Short\n\n${Array.from({ length: 28 }, (_, i) => `Sentence ${i} about retrieval and storage systems.`).join(" ")}\n`,
+		);
+		// Short notes keep their exact shingles: comparison is then exact.
+		expect(short.shingleHashes).not.toBeNull();
+		expect(short.shingleCount).toBe(short.shingleHashes!.length);
+		const comparison = compareSignatures(short.shingles, short.shingles, short.shingleCount, short.shingleCount);
+		expect(comparison.jaccard).toBeCloseTo(1, 5);
+		expect(comparison.containment).toBeCloseTo(1, 2);
+
+		// A long note keeps only the MinHash signature, with an upper bound on
+		// the number of distinct shingles instead of the exact count.
+		const long = analyzeDocument(
+			{ path: "long.md", name: "long.md", folder: "", ext: "md", size: 0, mtime: 0, ctime: 0 },
+			`# Long\n\n${Array.from({ length: 1200 }, (_, i) => `Sentence ${i} about retrieval and storage systems.`).join(" ")}\n`,
+		);
+		expect(long.shingleHashes).toBeNull();
+		expect(long.shingleCount).toBeGreaterThan(256);
+		const self = compareSignatures(long.shingles, long.shingles, long.shingleCount, long.shingleCount);
+		expect(self.jaccard).toBeCloseTo(1, 5);
+	});
+});
+
+describe("blank lines", () => {
+	it("keeps paragraph breaks instead of welding paragraphs together", async () => {
+		const { collapseBlankLines } = await import("../src/core/markdown/syntax");
+		expect(collapseBlankLines("a\n\nb", 1)).toBe("a\n\nb");
+		expect(collapseBlankLines("a\n\n\n\n\nb", 1)).toBe("a\n\nb");
+		expect(collapseBlankLines("a\n\n\n\n\nb", 2)).toBe("a\n\n\nb");
+		expect(collapseBlankLines("a\n\nb", 0)).toBe("a\nb");
+	});
+});
+
+describe("secret scan", () => {
+	it("flags credential shapes and reports them redacted", () => {
+		const content = [
+			"# Notes",
+			"",
+			"Rotate the key: AKIAIOSFODNN7EXAMPLE",
+			"api_key = sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
+			"-----BEGIN OPENSSH PRIVATE KEY-----",
+			"Nothing to see here, just a normal sentence about retrieval.",
+		].join("\n");
+		const outcome = scanForSecrets([{ index: 0, content }]);
+		const kinds = outcome.findings.map((finding) => finding.kind);
+		expect(kinds).toContain("aws-access-key");
+		expect(kinds).toContain("private-key");
+		// The named-secret pattern matches the same line as the sk- key; only the
+		// first match on a line is reported, so the line is not counted twice.
+		expect(outcome.findings.length).toBe(3);
+		for (const finding of outcome.findings) {
+			expect(finding.sample).toContain("…");
+			expect(finding.sample.length).toBeLessThan(24);
+		}
+		expect(outcome.truncated).toBe(false);
+	});
+
+	it("leaves ordinary prose alone", () => {
+		const content = [
+			"# Design",
+			"",
+			"The API key rotation policy is documented in the ops runbook.",
+			"Passwords should never be committed; use the shared vault instead.",
+			"Bearer tokens expire after an hour in our setup.",
+		].join("\n");
+		expect(scanForSecrets([{ index: 0, content }]).findings).toEqual([]);
+	});
+
+	it("stops after the finding cap", () => {
+		const line = "token: ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+		const content = Array.from({ length: 40 }, () => line).join("\n");
+		const outcome = scanForSecrets([{ index: 0, content }], 5);
+		expect(outcome.findings.length).toBe(5);
+		expect(outcome.truncated).toBe(true);
+		expect(groupSecretFindings(outcome.findings)).toEqual([
+			{ label: "GitHub token", count: 5, sample: expect.any(String), part: 1 },
+		]);
+	});
+});
+
+describe("profile status", () => {
+	const files = [
+		{ path: "a.md", name: "a.md", folder: "", ext: "md", size: 100, mtime: 1000, ctime: 0 },
+		{ path: "b.md", name: "b.md", folder: "", ext: "md", size: 200, mtime: 2000, ctime: 0 },
+	];
+	const profile = { ...createDefaultProfiles()[0], id: "p", name: "Profile" };
+	const state = () => {
+		const value = createState();
+		value.profiles["p"] = {
+			"a.md": { hash: "h", mtime: 1000, size: 100, words: 10, tokens: 12, lastExportedAt: 5000 },
+			"b.md": { hash: "h", mtime: 999, size: 200, words: 20, tokens: 24, lastExportedAt: 5000 },
+			"gone.md": { hash: "h", mtime: 1, size: 1, words: 1, tokens: 1, lastExportedAt: 5000 },
+		};
+		return value;
+	};
+
+	it("counts new, changed, gone and unchanged notes", () => {
+		const status = computeProfileStatus(profile, null, state(), files);
+		expect(status.notes).toBe(2);
+		expect(status.unchanged).toBe(1);
+		expect(status.changed).toBe(1);
+		expect(status.removed).toBe(1);
+		expect(status.exported).toBe(3);
+		expect(status.lastExportAt).toBe(5000);
+		expect(isStale(status)).toBe(true);
+		expect(describeChanges(status)).toBe("1 changed, 1 gone");
+	});
+
+	it("prefers the manifest totals for size and parts", () => {
+		const status = computeProfileStatus(
+			profile,
+			{
+				generatedAt: "2026-01-01T00:00:00.000Z",
+				stats: { kept: 12, words: 900, tokens: 1200 },
+				parts: [
+					{ index: 0, path: "a.md" },
+					{ index: 1, path: "b.md" },
+					{ index: 2, path: "c.md" },
+				],
+			},
+			createState(),
+			files,
+		);
+		expect(status.parts).toBe(3);
+		expect(status.tokens).toBe(1200);
+		expect(status.exported).toBe(12);
+		expect(status.tracked).toBe(true);
+		expect(status.added).toBe(2);
+		expect(describeChanges(status)).toBe("2 new");
+	});
+
+	it("says nothing changed when the vault matches the state", () => {
+		const status = computeProfileStatus(profile, null, state(), [files[0]]);
+		expect(status.added).toBe(0);
+		expect(isStale(status)).toBe(true); // b.md and gone.md are missing
+		const clean = createState();
+		clean.profiles["p"] = { "a.md": { hash: "h", mtime: 1000, size: 100, words: 1, tokens: 1, lastExportedAt: 5000 } };
+		const settled = computeProfileStatus(profile, null, clean, [files[0]]);
+		expect(isStale(settled)).toBe(false);
+		expect(describeChanges(settled)).toBe("up to date");
+	});
+});
+
+describe("attachment embeds", () => {
+	it("does not count a binary embed as a note link", () => {
+		const doc = analyzeDocument(
+			{
+				path: "note.md",
+				name: "note.md",
+				folder: "",
+				ext: "md",
+				size: 120,
+				mtime: 0,
+				ctime: 0,
+			},
+			"Some prose with enough words to be a note at all, honestly.\n\n![[diagram.png]]\n\n![[Other note]]\n",
+		);
+		// The image is an attachment (the inventory reports it); the
+		// extension-less embed is still a transclusion of a note.
+		expect(doc.outgoing).toEqual(["Other note"]);
+	});
+});
+
+describe("attachment inventory", () => {
+	const source = (path: string, size = 10) => {
+		const name = path.split("/").pop() ?? path;
+		return {
+			path,
+			name,
+			folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "",
+			ext: name.split(".").pop() ?? "",
+			size,
+			mtime: 0,
+			ctime: 0,
+		};
+	};
+	const docOf = (path: string, content: string) => {
+		const file = source(path);
+		return analyzeDocument({ ...file, ext: "md", size: content.length }, content);
+	};
+
+	it("resolves embeds by path, name and extension-less name", () => {
+		const docs = [
+			docOf("a.md", "![[diagram.png]] and ![[Assets/photo.jpg]] and ![[Assets/paper]] and ![[missing-file.png]]"),
+			docOf("b.md", "![[diagram.png]]"),
+		];
+		const inventory = collectAttachments(docs, [
+			source("Assets/diagram.png", 1000),
+			source("Assets/photo.jpg", 2000),
+			source("Assets/paper.pdf", 3000),
+			source("Notes/other.md", 50),
+		]);
+		expect(inventory.refs.map((ref) => ref.path).sort()).toEqual(["Assets/diagram.png", "Assets/paper.pdf", "Assets/photo.jpg"]);
+		expect(inventory.refs[0].references).toBe(2);
+		expect(inventory.totalBytes).toBe(6000);
+		expect(inventory.summary).toContain("2 images");
+		expect(inventory.summary).toContain("1 PDF");
+		expect(inventory.unresolved).toEqual(["missing-file.png"]);
+	});
+
+	it("counts a file once per note even when it is embedded twice", () => {
+		const docs = [docOf("a.md", "![[logo.png]]\n\n![[logo.png]]")];
+		const inventory = collectAttachments(docs, [source("logo.png", 42)]);
+		expect(inventory.refs).toEqual([{ path: "logo.png", kind: "png", size: 42, references: 1 }]);
+	});
+});

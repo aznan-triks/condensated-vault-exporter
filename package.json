@@ -1,0 +1,39 @@
+{
+  "name": "condensated-vault-exporter",
+  "version": "1.0.0",
+  "description": "Condense whole Obsidian folders into AI-ready bundles: token-budgeted, deduplicated, summarized, with full provenance.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "npm run typecheck && node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "ci": "npm run typecheck && npm run test && node esbuild.config.mjs production",
+    "bench": "vite-node bench/bench.ts",
+    "demo": "vite-node bench/demo.ts"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "export",
+    "notebooklm",
+    "llm",
+    "rag",
+    "context"
+  ],
+  "author": "aznan-triks",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.28.2",
+    "happy-dom": "^20.14.5",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typescript": "5.9.3",
+    "vite-node": "^6.0.0",
+    "vitest": "^5.0.3"
+  }
+}
