@@ -754,3 +754,111 @@ describe("volumes", () => {
 		expect(result.parts[0].content).not.toContain("volume 1 of 1");
 	});
 });
+
+describe("options that used to be cosmetic", () => {
+	it("repeats the note header when asked, and not when disabled", async () => {
+		const long = `# Repeating note\n\n${Array.from({ length: 40 }, (_, i) => `Paragraph ${i} with enough words to matter for the splitter.`).join(" ")}\n`;
+		const vault = fakeVault([makeFile("notes/long.md", long)]);
+		const base = testProfile();
+		const chunking = {
+			...base.packaging.chunking,
+			mode: "maxTokens" as const,
+			maxTokens: 150,
+			overlapTokens: 0,
+			splitAtLevel: 1,
+		};
+		const withRepeat = await runExport(
+			{ profile: testProfile({ packaging: { ...base.packaging, chunking, includeKnowledgeMap: false, includeToc: false } as never }) },
+			{ vault, sink: memorySink() },
+		);
+		expect(withRepeat.parts.length).toBeGreaterThan(1);
+		// Every continuation part is labelled with the note it belongs to.
+		expect(withRepeat.parts[1].content).toContain("Repeating note");
+		expect(withRepeat.parts[5].content).toContain("Repeating note");
+
+		const withoutRepeat = await runExport(
+			{
+				profile: testProfile({
+					packaging: {
+						...base.packaging,
+						chunking: { ...chunking, repeatHeader: false },
+						includeKnowledgeMap: false,
+						includeToc: false,
+					} as never,
+				}),
+			},
+			{ vault, sink: memorySink() },
+		);
+		expect(withoutRepeat.parts[1].content).not.toContain("Repeating note");
+	});
+
+	it("embeds the citation manifest in the first part when requested", async () => {
+		const profile = testProfile({
+			packaging: { ...testProfile().packaging, manifestEmbedded: true } as never,
+		});
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink: memorySink() });
+		expect(result.parts[0].content).toContain("<!-- bundle manifest -->");
+		const json = result.parts[0].content.split("```json")[1].split("```")[0];
+		const payload = JSON.parse(json);
+		expect(payload.stats.kept).toBeGreaterThan(0);
+		expect(Object.keys(payload.citation.sources).length).toBeGreaterThan(0);
+		// The numbers in the part stay honest after the append.
+		expect(result.parts[0].chars).toBe(result.parts[0].content.length);
+	});
+
+	it("keeps the note title between parts when the note has no heading", async () => {
+		const files = [
+			makeFile("notes/no-heading.md", "Body text only, with several sentences about the topic at hand.\n"),
+		];
+		const profile = testProfile({
+			transform: { ...testProfile().transform, ensureTitle: true } as never,
+			packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never,
+		});
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		expect(result.parts[0].content).toContain("# no-heading");
+
+		const off = await runExport(
+			{
+				profile: testProfile({
+					transform: { ...testProfile().transform, ensureTitle: false } as never,
+					packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never,
+				}),
+			},
+			{ vault: fakeVault(files), sink: memorySink() },
+		);
+		expect(off.parts[0].content).not.toContain("# no-heading");
+	});
+
+	it("can reference a transclusion instead of inlining it", async () => {
+		const files = [
+			makeFile(
+				"notes/host.md",
+				"# Host\n\nThe host note explains the retrieval design in enough words to pass the filter.\n\n![[notes/included]]\n\nContext after the embed with a few more words to be safe.\n",
+			),
+			makeFile(
+				"notes/included.md",
+				"# Included\n\nSecret body text that is long enough to survive the minimum word filter.\n",
+			),
+		];
+		const inlined = await runExport(
+			{
+				profile: testProfile({
+					packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never,
+				}),
+			},
+			{ vault: fakeVault(files), sink: memorySink() },
+		);
+		expect(inlined.parts[0].content).toContain("Secret body text");
+
+		const referenced = await runExport(
+			{
+				profile: testProfile({
+					condensation: { ...testProfile().condensation, inlineTransclusions: false } as never,
+					packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never,
+				}),
+			},
+			{ vault: fakeVault(files), sink: memorySink() },
+		);
+		expect(referenced.parts[0].content).toContain("[[notes/included]]");
+	});
+});

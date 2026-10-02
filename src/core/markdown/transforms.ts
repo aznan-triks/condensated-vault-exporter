@@ -41,6 +41,8 @@ export interface ContentResolver {
 export interface TransclusionOptions {
 	depth: number;
 	maxChars: number;
+	/** `false` leaves `![[Note]]` as a reference instead of inlining the body. */
+	inline?: boolean;
 }
 
 export interface TransformContext {
@@ -458,6 +460,11 @@ async function resolveEmbeds(
 ): Promise<string> {
 	if (options.embeds === "remove") return text.replace(/!\[\[[^[\]\n]+?\]\]/g, "");
 	if (options.embeds === "reference") return text.replace(/!\[\[([^[\]\n]+?)\]\]/g, "[[$1]]");
+	// Note transclusion is a separate switch: `inlineTransclusions: false` keeps
+	// the embed marker but still resolves images and attachments.
+	if (context.transclusion?.inline === false) {
+		text = text.replace(/!\[\[([^[\]\n#^|]+?)(?:#[^\]\n|]+)?(?:\^[^\]\n]+)?\]\]/g, "[[$1]]");
+	}
 	if (!context.resolver) return text;
 
 	EMBED_LINE_RE.lastIndex = 0;

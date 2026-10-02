@@ -310,6 +310,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			transclusion: {
 				depth: profile.transform.transcludeDepth,
 				maxChars: profile.transform.transcludeMaxChars,
+				inline: profile.condensation.inlineTransclusions,
 			},
 			boilerplate: kbContext,
 		});
@@ -317,6 +318,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		warnings.push(...transformed.warnings.slice(0, 5));
 
 		let body = transformed.text;
+		// A note with no heading of its own is still a titled document in the
+		// bundle: without this, a run of untitled notes reads as one wall.
+		if (profile.transform.ensureTitle && body.trim() !== "" && !/^\s{0,3}#{1,6}\s/m.test(body)) {
+			body = `${"#".repeat(Math.max(1, Math.min(6, profile.transform.noteHeadingLevel)))} ${doc.title}\n\n${body}`;
+		}
 		let summaryApplied = false;
 		let truncated = false;
 
@@ -569,6 +575,34 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			warnings: [] as string[],
 		};
 	});
+
+	// A self-describing bundle: the first part carries a small JSON block with
+	// the citation map, so a model (or a human) can resolve `S03` without the
+	// sidecar file. Appended before the limit check so the numbers stay honest.
+	if (profile.packaging.manifestEmbedded && parts.length > 0) {
+		const sources: Record<string, string> = {};
+		for (const entry of included) sources[entry.citationId] = entry.doc.file.path;
+		const embedded = {
+			plugin: { id: "condensated-vault-exporter", version: deps.pluginVersion ?? "1.0.0" },
+			profile: { id: profile.id, name: profile.name },
+			generatedAt: generatedAt.toISOString(),
+			format: profile.packaging.format,
+			parts: parts.length,
+			volumes: volumeCount,
+			stats,
+			citation: {
+				scheme: "S01, S02 … — the id printed in front of each note",
+				sources,
+			},
+		};
+		const block = `\n\n<!-- bundle manifest -->\n\`\`\`json\n${JSON.stringify(embedded)}\n\`\`\`\n`;
+		const first = parts[0];
+		first.content += block;
+		first.chars = first.content.length;
+		first.tokens = estimateTokens(first.content).tokens;
+		first.words = countWords(first.content);
+	}
+
 
 	const partsPerVolume = Math.max(1, Math.min(volumeSize, parts.length));
 	const limitViolations = checkLimits(

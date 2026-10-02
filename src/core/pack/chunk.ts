@@ -249,7 +249,9 @@ export function splitUnit(unit: PackUnit, limitTokens: number, options: ChunkOpt
 		const sentences = unit.content.split(/(?<=[.!?…])\s+/);
 		if (sentences.length <= 1) {
 			if (unit.tokens <= limitTokens) return [unit];
-			return hardSplit(unit.content, limitTokens).map((content, index, all) => makeChild(unit, content, index, all.length));
+			return hardSplit(unit.content, limitTokens).map((content, index, all) =>
+				makeChild(unit, content, index, all.length, options.repeatHeader),
+			);
 		}
 		const pieces: string[] = [];
 		let current = "";
@@ -261,7 +263,7 @@ export function splitUnit(unit: PackUnit, limitTokens: number, options: ChunkOpt
 			} else current = candidate;
 		}
 		if (current !== "") pieces.push(current);
-		return pieces.map((content, index) => makeChild(unit, content, index, pieces.length));
+		return pieces.map((content, index) => makeChild(unit, content, index, pieces.length, options.repeatHeader));
 	}
 
 	// Blocks that are still too large (a giant paragraph, a long list, a code
@@ -295,7 +297,7 @@ export function splitUnit(unit: PackUnit, limitTokens: number, options: ChunkOpt
 	}
 	if (current.length > 0) pieces.push(current.join("\n\n"));
 
-	return pieces.map((content, index) => makeChild(unit, content, index, pieces.length));
+	return pieces.map((content, index) => makeChild(unit, content, index, pieces.length, options.repeatHeader));
 }
 
 /**
@@ -331,8 +333,8 @@ export function hardSplit(text: string, limitTokens: number): string[] {
 	return pieces.length > 0 ? pieces : [text];
 }
 
-function makeChild(parent: PackUnit, content: string, index: number, total: number): PackUnit {
-	const header = parent.header && index > 0 ? `${parent.header}\n` : "";
+function makeChild(parent: PackUnit, content: string, index: number, total: number, repeatHeader: boolean): PackUnit {
+	const header = repeatHeader && parent.header && index > 0 ? `${parent.header}\n` : "";
 	const text = header ? `${header}${content}` : content;
 	return {
 		origin: parent.origin,
