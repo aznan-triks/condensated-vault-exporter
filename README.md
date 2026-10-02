@@ -24,7 +24,7 @@ Vault folder ──▶ discover ──▶ analyse ──▶ condense ──▶ b
 | Navigation | None | Table of contents, corpus map, themes, hubs, glossary, suggested reading order |
 | Traceability | None | Citation ids (`S01`), per-note metadata, `.manifest.json` with content hashes |
 | Tuning | Settings soup | Profiles: one coherent recipe per destination |
-| Safety | Silent | Live preview, warnings, destination limit checks, cancellation |
+| Safety | Silent | Live preview, destination limit checks, cancellation, and a credential scan before anything is uploaded |
 
 ## What comes out
 
@@ -58,6 +58,9 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 - **Right-click a folder** → *Export as an AI-ready bundle…* — the folder is pre-filled.
 - **`Ctrl-P` → “Copy the bundle to the clipboard”** — paste straight into a chat.
 - **`Ctrl-P` → “Export every profile”** — one sweep over all profiles, with the analysis cache shared between them and profiles whose scope has not changed skipped. A second notice summarises what happened.
+- **Right-click a note** → *Export this note and its links* — a bundle scoped to that note's neighbourhood.
+- **A topic in the dialog** → export only what the vault says about “retrieval evaluation”.
+- **`Ctrl-P` → “Show export status”** — every profile, what it last produced, and what changed since.
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
@@ -234,7 +237,8 @@ profiles), a `<bundle>.report.md` lands next to the bundle:
 - how the result compares to the destination's limits.
 
 The preview dialog can copy it without writing a file, and the completion
-notice points at it whenever notes were left behind.
+notice points at it whenever notes were left behind. See
+[`docs/example-bundle.report.md`](docs/example-bundle.report.md).
 
 ### One file per note
 
@@ -273,13 +277,17 @@ manifest records the volume of every part.
 ### Performance
 
 `npm run bench [notes]` runs the whole engine over a synthetic vault and prints
-the phase breakdown. On a 5 000-note / 4 MB corpus, a full run (analysis,
-deduplication, knowledge layer, rendering) takes a few seconds and peaks well
-under 200 MB of heap: the analyzer never keeps note text, only bounded
-structures. Two hot spots were found and fixed with the benchmark: MinHash used
-to hash every shingle once per signature slot (now two hashes plus double
-hashing), and unresolved links used to scan the whole vault each time (now a
-`basename → path` index).
+the phase breakdown (add `BENCH_PHASES=1`). On a 5 000-note / 4 MB corpus, a
+full NotebookLM export takes ~2.4 s — 0.9 s analysing, 0.8 s condensing, 0.6 s
+rendering — and peaks around 180 MB of heap: the analyzer never keeps note
+text, only bounded structures.
+
+The benchmark has paid for itself three times: MinHash used to hash every
+shingle once per signature slot (now two hashes plus double hashing),
+unresolved links used to scan the whole vault each time (now a
+`basename → path` index), and lines were re-scanned per pass instead of being
+measured once. Six profiles over the same vault, warm cache: 1.7 s to 2.5 s
+each.
 
 ### Design constraints
 
@@ -301,7 +309,7 @@ src/
     condense/              boilerplate, duplicates, extractive summaries
     intel/                 link graph, MinHash/LSH, similarity, key terms, knowledge map
     pack/                  chunking, budgets, limits, renderers
-    state/                 manifest, delta computation, analysis cache
+    state/                 manifest, delta computation, analysis cache, profile status
   obsidian/                vault/sink ports, settings model, runner, dialogs, settings tab
 tests/                     core units, pipeline end-to-end, plugin layer
 ```
