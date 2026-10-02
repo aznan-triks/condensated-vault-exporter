@@ -1,0 +1,142 @@
+/* Condensated Vault Exporter — UI polish.
+   Kept deliberately small: the plugin reuses Obsidian's own components
+   (Setting, Modal, Notice) and only styles what it adds. */
+
+/* Status bar ---------------------------------------------------------------- */
+.cve-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.cve-status-icon {
+	display: inline-flex;
+}
+
+.cve-status.cve-status-error {
+	color: var(--text-error);
+}
+
+.cve-status .cve-status-text {
+	font-size: var(--font-ui-smaller);
+}
+
+/* Export dialog ------------------------------------------------------------- */
+.cve-dialog .cve-profile-summary {
+	margin: 0 0 var(--size-4-3) 0;
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+	font-size: var(--font-ui-small);
+}
+
+.cve-dialog .cve-summary-list {
+	margin: var(--size-4-1) 0 0 0;
+	padding-left: var(--size-4-4);
+	color: var(--text-muted);
+}
+
+.cve-hint {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	margin: var(--size-4-1) 0;
+}
+
+.cve-dialog-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+
+/* Preview modal ------------------------------------------------------------- */
+.cve-preview-modal {
+	width: min(1000px, 90vw);
+}
+
+.cve-preview-stats table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--font-ui-small);
+	margin-bottom: var(--size-4-2);
+}
+
+.cve-preview-stats th {
+	text-align: left;
+	color: var(--text-muted);
+	font-weight: var(--font-medium);
+	width: 140px;
+	padding: 2px 8px 2px 0;
+	vertical-align: top;
+}
+
+.cve-preview-stats td {
+	padding: 2px 0;
+}
+
+.cve-preview-warnings {
+	margin: var(--size-4-2) 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.cve-warning-line {
+	font-size: var(--font-ui-smaller);
+	padding: 3px 8px;
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+}
+
+.cve-warning-line.cve-error {
+	color: var(--text-error);
+	border-left: 3px solid var(--text-error);
+}
+
+.cve-warning-line.cve-warning {
+	color: var(--text-warning);
+	border-left: 3px solid var(--text-warning);
+}
+
+.cve-warning-line.cve-info {
+	color: var(--text-muted);
+	border-left: 3px solid var(--text-faint);
+}
+
+.cve-preview-body {
+	max-height: 55vh;
+	overflow: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	background-color: var(--background-primary);
+}
+
+.cve-preview-raw {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: var(--font-ui-smaller);
+	margin: 0;
+}
+
+.cve-preview-markdown > :first-child {
+	margin-top: 0;
+}
+
+/* Settings ------------------------------------------------------------------ */
+.cve-settings .cve-profile-summary {
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-3);
+}
+
+.cve-history-line {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	padding: 2px 0;
+}
