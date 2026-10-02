@@ -593,6 +593,17 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const volumeSize = profile.limits.maxParts > 0 ? profile.limits.maxParts : Math.max(1, chunked.parts.length);
 	const volumeCount = Math.max(1, Math.ceil(chunked.parts.length / Math.max(1, volumeSize)));
 	const volumeOf = (index: number) => (volumeCount > 1 ? Math.floor(index / volumeSize) + 1 : 1);
+	// Planned once: the write phase, the sidecar, the instructions file and the
+	// report all need the same names.
+	const names = planOutputNames(
+		profile,
+		bundleTitle,
+		chunked.parts.length,
+		generatedAt,
+		volumeCount,
+		volumeSize,
+		chunked.parts.map((part) => part.sources),
+	);
 	const parts = chunked.parts.map((part, index) => {
 		const content = normalizeLineEndings(
 			assemblePart(part.units, {
@@ -698,23 +709,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		: null;
 	const instructionsPath =
 		profile.packaging.instructionsFile && instructionsText
-			? joinOutputPath(
-					{ ...profile.output, ...(request.outputOverride ?? {}) },
-					sanitizeRelativePath(
-						planOutputNames(
-							profile,
-							bundleTitle,
-							parts.length,
-							generatedAt,
-							volumeCount,
-							volumeSize,
-							parts.map((part) => part.sources),
-						)[0],
-						"bundle",
-					)
-						.replace(/-v\d+(\.[^.]+)$/, "$1")
-						.replace(/\.[^.]+$/, "") + ".instructions.md",
-				)
+			? joinOutputPath({ ...profile.output, ...(request.outputOverride ?? {}) }, sidecarStem(profile, names) + ".instructions.md")
 			: null;
 
 	// Per-note content hashes: they make the sidecar a real record of what was
@@ -732,17 +727,6 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 
 	const written: string[] = [];
 	const output = { ...profile.output, ...(request.outputOverride ?? {}) };
-	// Planned once: the write phase, the sidecar, the instructions file and the
-	// report all need the same names.
-	const names = planOutputNames(
-		profile,
-		bundleTitle,
-		parts.length,
-		generatedAt,
-		volumeCount,
-		volumeSize,
-		parts.map((part) => part.sources),
-	);
 	const droppedEntries: ReportEntry[] = budget.dropped.map((path) => ({
 		path,
 		reason: "the token budget could not fit it",
@@ -782,9 +766,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		profile.packaging.reportFile && reportText !== ""
 			? joinOutputPath(
 					output,
-					sanitizeRelativePath(names[0], "bundle")
-						.replace(/-v\d+(\.[^.]+)$/, "$1")
-						.replace(/\.[^.]+$/, "") + ".report.md",
+					sidecarStem(profile, names) + ".report.md",
 				)
 			: null;
 
@@ -826,7 +808,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			check();
 			const manifestPath = joinOutputPath(
 				output,
-				sanitizeRelativePath(names[0], "bundle").replace(/\.md$|\.txt$|\.jsonl?$|\.xml$/i, "") + ".manifest.json",
+				sidecarStem(profile, names) + ".manifest.json",
 			);
 			written.push(await deps.sink.write(manifestPath, JSON.stringify(withDelta(manifest, delta), null, 2)));
 		}
@@ -846,7 +828,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			// A small index file makes a 50-part bundle navigable.
 			const indexPath = joinOutputPath(
 				output,
-				sanitizeRelativePath(names[0], "bundle").replace(/-v\d+(\.[^.]+)$/, "$1").replace(/\.[^.]+$/, "") + ".index.md",
+				sidecarStem(profile, names) + ".index.md",
 			);
 			written.push(await deps.sink.write(indexPath, renderPartIndex(profile, bundleTitle, parts, generatedAt)));
 		}
@@ -1544,6 +1526,21 @@ export function budgetTokensFromProfile(profile: ExportProfile): number {
 	}
 	if (profile.limits.maxTotalWords > 0) return Math.round(profile.limits.maxTotalWords * 1.35);
 	return 0; // unlimited
+}
+
+/**
+ * Base name (relative to the output folder, without extension) of the files
+ * that accompany the bundle: sidecar manifest, index, instructions, report.
+ *
+ * A per-note export has no single bundle file, and the first note's name says
+ * nothing about the export — so those follow the profile name instead and sit
+ * at the root of the output folder rather than inside a mirrored subfolder.
+ */
+function sidecarStem(profile: ExportProfile, names: string[]): string {
+	if (profile.output.fileNameTemplate.includes("{{note_")) return slugify(profile.name);
+	return sanitizeRelativePath(names[0], "bundle")
+		.replace(/-v\d+(\.[^.]+)$/, "$1")
+		.replace(/\.[^.]+$/, "");
 }
 
 /** Rough size of the JSON block appended to the first part. */

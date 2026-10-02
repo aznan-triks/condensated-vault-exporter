@@ -1225,3 +1225,15 @@ describe("export report", () => {
 		expect(report).toContain("copy-b.md");
 	});
 });
+
+describe("mirror sidecars", () => {
+	it("keeps companion files at the root of a per-note export", async () => {
+		const profile = normalizeProfile({ id: "mirror" });
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		const paths = [...sink.written.keys()];
+		expect(paths.filter((path) => path.endsWith(".manifest.json"))).toEqual(["Exports/Mirror/clean-mirror.manifest.json"]);
+		expect(paths.some((path) => path === "Exports/Mirror/projects/alpha.md")).toBe(true);
+		expect(result.parts.every((part) => !part.path.includes(".manifest"))).toBe(true);
+	});
+});

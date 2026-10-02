@@ -40,6 +40,9 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Per-note exports keep their companion files (sidecar manifest, index,
+  instructions, report) at the root of the output folder, named after the
+  profile, instead of borrowing the first note's path.
 - Export report: every run produces a human-readable account of what it did —
   what was kept, what was left out and why, what was cleaned up, and how the
   result compares to the destination's limits. Written as `<bundle>.report.md`

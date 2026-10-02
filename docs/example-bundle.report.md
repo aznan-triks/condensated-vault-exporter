@@ -1,6 +1,6 @@
 # Export report — NotebookLM (free)
 
-Profile **NotebookLM** · generated 2026-01-20 12:00 · 35 ms
+Profile **NotebookLM** · generated 2026-01-20 12:00 · 31 ms
 
 ## What was exported
 
