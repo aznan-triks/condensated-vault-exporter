@@ -61,6 +61,27 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
+### Before the bundle leaves the machine
+
+Bundles exist to be uploaded, which is exactly when a private note becomes an
+exposure. The exporter scans the parts it just assembled for credential shapes
+(API keys, GitHub/Slack/OpenAI/Google tokens, private key blocks, JWTs, bearer
+tokens, `password = …` lines) and, if it finds any, adds a warning to the run
+and a redacted section at the top of the export report:
+
+```markdown
+## ⚠️ Possible credentials in this bundle
+
+- 1 × GitHub token — `ghp_ab…6789` (part 1)
+
+These are shape matches, not proof — but a bundle is made to be uploaded, so
+check them before it leaves the machine.
+```
+
+Only a redacted excerpt is ever written down, and the scan is a smoke detector,
+not a secret manager: it trades a few false positives for the chance of
+catching a key pasted into a note last year.
+
 ### Notes that point at each other
 
 A bundle is more than a pile of documents: the exporter resolves every link

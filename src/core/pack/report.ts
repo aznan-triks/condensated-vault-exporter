@@ -10,6 +10,7 @@
  */
 
 import type { BundleLimits, ExportDelta, PlanStats } from "../types";
+import { groupSecretFindings, type SecretFinding } from "../intel/safety";
 import type { LimitViolation } from "./limits";
 import type { TransformStats } from "../markdown/transforms";
 import { formatBytes, formatCount, plural } from "../util";
@@ -69,6 +70,8 @@ export interface ExportReportInput {
 	warnings: string[];
 	delta?: ExportDelta;
 	graph?: ReportGraph;
+	/** Credential-shaped strings found in the assembled parts. */
+	secrets?: { findings: SecretFinding[]; truncated: boolean };
 }
 
 /** How many individual lines of a list the report spells out. */
@@ -96,6 +99,27 @@ export function buildExportReport(input: ExportReportInput): string {
 		}`,
 		"",
 	);
+
+	// -- credentials -----------------------------------------------------------
+	// First, not last: this is the one section that can prevent real damage,
+	// and a report is read top-down.
+	if (input.secrets && input.secrets.findings.length > 0) {
+		const groups = groupSecretFindings(input.secrets.findings);
+		lines.push("## ⚠️ Possible credentials in this bundle", "");
+		for (const group of groups) {
+			lines.push(
+				`- ${formatCount(group.count)} × ${group.label} — \`${group.sample}\` (part ${group.part})`,
+			);
+		}
+		if (input.secrets.truncated) {
+			lines.push(`- …and more: the scan stops after ${formatCount(input.secrets.findings.length)} hits`);
+		}
+		lines.push(
+			"",
+			"These are shape matches, not proof — but a bundle is made to be uploaded, so check them before it leaves the machine. Remove them from the notes (or exclude those notes), then export again.",
+			"",
+		);
+	}
 
 	// -- what was exported -----------------------------------------------------
 	const keptRatio = stats.discovered > 0 ? Math.round((stats.kept / stats.discovered) * 100) : 100;

@@ -1371,3 +1371,39 @@ describe("corpus map in the export report", () => {
 		expect(report).toContain("Most referenced:");
 	});
 });
+
+describe("credential scan", () => {
+	const secretNote = () =>
+		makeFile(
+			"ops/runbook.md",
+			note(
+				"Deploy runbook",
+				[
+					"Rotate the deployment token before every release, and never paste it into the chat.",
+					"",
+					"github_token: ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+					"",
+					"The rest of this note is an ordinary paragraph about deployments and rollbacks.",
+				].join("\n"),
+			),
+		);
+
+	it("warns and reports a credential found in the bundle", async () => {
+		const sink = memorySink();
+		const profile = testProfile({ packaging: { ...testProfile().packaging, reportFile: true } });
+		const result = await runExport({ profile }, { vault: fakeVault([secretNote()]), sink });
+		expect(result.warnings.join(" ")).toContain("possible credential(s) were found in the bundle");
+		const report = result.report ?? "";
+		expect(report).toContain("## ⚠️ Possible credentials in this bundle");
+		expect(report).toContain("GitHub token");
+		// The report must not become the leak: only a redacted excerpt is kept.
+		expect(report).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+		expect(report).toContain("ghp_ab…6789");
+	});
+
+	it("stays quiet on a clean vault", async () => {
+		const clean = makeFile("notes/plain.md", note("Plain note", "Nothing sensitive here, just notes about retrieval and ranking."));
+		const result = await runExport({ profile: testProfile() }, { vault: fakeVault([clean]), sink: memorySink() });
+		expect(result.warnings.join(" ")).not.toContain("credential");
+	});
+});

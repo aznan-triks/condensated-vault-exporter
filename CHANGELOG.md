@@ -40,6 +40,10 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Credential scan: the exporter reads the parts it just assembled and warns
+  (plus a redacted section at the top of the report) when they contain
+  credential-shaped strings — API keys, tokens, private key blocks, JWTs — so
+  a bundle is not uploaded to a cloud model with the vault's secrets in it.
 - Bundles now cross-reference themselves: every note names the notes it
   links to and the notes that link back, by citation id, in Markdown, plain
   text, XML and JSON. A model reading the bundle can follow the graph instead

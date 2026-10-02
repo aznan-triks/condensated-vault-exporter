@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { groupSecretFindings, scanForSecrets } from "../src/core/intel/safety";
 import { matchGlob, matchAny, isValidGlob } from "../src/core/glob";
 import { parseFrontmatter, stringifyFrontmatter, asStringArray, tagMatches } from "../src/core/frontmatter";
 import { estimateTokens, countTokens } from "../src/core/tokens";
@@ -317,5 +318,52 @@ describe("blank lines", () => {
 		expect(collapseBlankLines("a\n\n\n\n\nb", 1)).toBe("a\n\nb");
 		expect(collapseBlankLines("a\n\n\n\n\nb", 2)).toBe("a\n\n\nb");
 		expect(collapseBlankLines("a\n\nb", 0)).toBe("a\nb");
+	});
+});
+
+describe("secret scan", () => {
+	it("flags credential shapes and reports them redacted", () => {
+		const content = [
+			"# Notes",
+			"",
+			"Rotate the key: AKIAIOSFODNN7EXAMPLE",
+			"api_key = sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
+			"-----BEGIN OPENSSH PRIVATE KEY-----",
+			"Nothing to see here, just a normal sentence about retrieval.",
+		].join("\n");
+		const outcome = scanForSecrets([{ index: 0, content }]);
+		const kinds = outcome.findings.map((finding) => finding.kind);
+		expect(kinds).toContain("aws-access-key");
+		expect(kinds).toContain("private-key");
+		// The named-secret pattern matches the same line as the sk- key; only the
+		// first match on a line is reported, so the line is not counted twice.
+		expect(outcome.findings.length).toBe(3);
+		for (const finding of outcome.findings) {
+			expect(finding.sample).toContain("…");
+			expect(finding.sample.length).toBeLessThan(24);
+		}
+		expect(outcome.truncated).toBe(false);
+	});
+
+	it("leaves ordinary prose alone", () => {
+		const content = [
+			"# Design",
+			"",
+			"The API key rotation policy is documented in the ops runbook.",
+			"Passwords should never be committed; use the shared vault instead.",
+			"Bearer tokens expire after an hour in our setup.",
+		].join("\n");
+		expect(scanForSecrets([{ index: 0, content }]).findings).toEqual([]);
+	});
+
+	it("stops after the finding cap", () => {
+		const line = "token: ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+		const content = Array.from({ length: 40 }, () => line).join("\n");
+		const outcome = scanForSecrets([{ index: 0, content }], 5);
+		expect(outcome.findings.length).toBe(5);
+		expect(outcome.truncated).toBe(true);
+		expect(groupSecretFindings(outcome.findings)).toEqual([
+			{ label: "GitHub token", count: 5, sample: expect.any(String), part: 1 },
+		]);
 	});
 });

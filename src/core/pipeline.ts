@@ -54,6 +54,7 @@ import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
 import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
+import { scanForSecrets } from "./intel/safety";
 import { neighbourhoodScope, type Neighbourhood } from "./scope";
 import { buildInstructions } from "./pack/instructions";
 import { buildExportReport, type ReportEntry, type ReportGraph } from "./pack/report";
@@ -743,6 +744,13 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			`ℹ️ ${parts.length} parts exceed the ${profile.limits.maxParts}-source limit of the destination, so they were grouped into ${volumeCount} volumes of at most ${partsPerVolume} parts. Import one volume (or notebook) at a time.`,
 		);
 	}
+	// A bundle is meant to leave the machine; say so if it carries credentials.
+	const secrets = scanForSecrets(parts.map((part, index) => ({ index, content: part.content })));
+	if (secrets.findings.length > 0) {
+		warnings.push(
+			`⚠️ ${secrets.findings.length} possible credential(s) were found in the bundle — see the export report.`,
+		);
+	}
 	warnings.push(...chunked.warnings);
 	warnings.push(...limitViolations.map((v) => `${v.severity === "error" ? "❌" : v.severity === "warning" ? "⚠️" : "ℹ️"} ${v.message}`));
 	if (deltaNote) warnings.push(`🔄 ${deltaNote}`);
@@ -816,6 +824,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		warnings,
 		delta: previousManifest ? delta : undefined,
 		graph: reportGraph(rendered),
+		secrets,
 	});
 	const reportPath =
 		profile.packaging.reportFile && reportText !== ""
