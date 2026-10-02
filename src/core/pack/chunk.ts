@@ -130,6 +130,26 @@ export function chunkUnits(units: PackUnit[], options: ChunkOptions, overheadPer
 	for (const original of units) {
 		let unit = original;
 		if (unit.tokens > packLimit) {
+			if (unit.splittable === false) {
+				// Some content cannot be cut without being corrupted (a JSONL
+				// record, a JSON document): it keeps a part to itself and the
+				// run says so, instead of writing a file that no longer parses.
+				flush();
+				current.push(unit);
+				currentTokens += unit.tokens;
+				currentChars += unit.chars;
+				flush();
+				// Rounding-level overshoot is not worth a warning: the part still
+				// respects what the user asked for. Only a record that is well
+				// past the limit means the part size cannot be honoured.
+				const tolerated = Math.round(limitTokens * HARD_CAP_FACTOR);
+				if (unit.tokens > tolerated && !warnings.some((w) => w.includes(unit.title))) {
+					warnings.push(
+						`\u201c${unit.title}\u201d (~${unit.tokens} tokens) is larger than the part size and cannot be split without corrupting it \u2014 it was written as a part of its own.`,
+					);
+				}
+				continue;
+			}
 			// Too big to ever fit: split it internally first.
 			const pieces = splitUnit(unit, packLimit, options);
 			if (pieces.length > 1) {

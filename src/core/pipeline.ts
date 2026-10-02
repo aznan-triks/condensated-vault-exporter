@@ -63,7 +63,7 @@ import { collectAttachments, type AttachmentInventory } from "./intel/attachment
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
 import { allocateBudget, scoreDocuments, type BudgetDecision } from "./pack/budget";
 import { chunkUnits, type PackUnit } from "./pack/chunk";
-import { renderBundle, assemblePart, type RenderOptions, type RenderedNote } from "./pack/render";
+import { renderBundle, renderVariables, assemblePart, type RenderOptions, type RenderedNote } from "./pack/render";
 import { checkLimits, type LimitViolation } from "./pack/limits";
 import { computeDelta, recordExport, type ExportState } from "./state/manifest";
 import type { AnalysisCache } from "./state/cache";
@@ -377,6 +377,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			path: note.entry.doc.file.path,
 			tokens: note.tokens,
 			words: note.words,
+			sentences: note.entry.doc.stats.sentences,
 			signal: note.entry.doc.signal,
 		})),
 		{
@@ -666,14 +667,14 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		repeatHeaders: true,
 	};
 
-	const bundle = renderBundle(rendered, renderOptions);
 	const chunking = profile.packaging.chunking;
+	const variables = renderVariables({ ...renderOptions, noteCount: rendered.length });
 	// The part limit must account for what assembly adds around the units:
 	// header, footer, part notice and note dividers. Measuring it is more
 	// reliable than guessing, and it is what makes the limit trustworthy.
 	const assemblyOverhead =
-		estimateTokens(applyTemplate(profile.packaging.headerTemplate, bundle.variables)).tokens +
-		estimateTokens(applyTemplate(profile.packaging.footerTemplate, bundle.variables)).tokens +
+		estimateTokens(applyTemplate(profile.packaging.headerTemplate, variables)).tokens +
+		estimateTokens(applyTemplate(profile.packaging.footerTemplate, variables)).tokens +
 		estimateTokens(profile.packaging.divider).tokens * 2 +
 		40 +
 		chunkingOverhead(profile) +
@@ -681,6 +682,20 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		// so room for it has to be reserved here or the part overflows.
 		embeddedManifestTokens(profile, included);
 	const partLimit = resolvePartLimit(chunking);
+	// Machine formats: how much room one record has. A note that does not fit is
+	// rendered as several complete records, because a JSON line cut in half is
+	// not JSON any more and an XML element cut in half does not parse at all —
+	// every line and every element of the file has to stand on its own.
+	const structured = profile.packaging.format === "json" || profile.packaging.format === "jsonl" || profile.packaging.format === "xml";
+	// A small margin absorbs the difference between the counted envelope and the
+	// serialised one, so a record never lands a few tokens over the part budget.
+	const maxRecordTokens = structured && partLimit > 0 ? Math.max(64, partLimit - assemblyOverhead - 24) : 0;
+	const bundle = renderBundle(rendered, {
+		...renderOptions,
+		noteCount: rendered.length,
+		maxRecordTokens,
+		chunking,
+	});
 	const chunked = chunkUnits(bundle.units, chunking, assemblyOverhead);
 
 	const generatedAt = new Date(deps.now?.() ?? Date.now());
@@ -1669,6 +1684,80 @@ function chunkingOverhead(profile: ExportProfile): number {
 }
 
 /**
+ * Tokens one note adds on top of its body, measured with the real renderer.
+ *
+ * A note with an empty body still pays for its `## Title` heading, its source
+ * line, the divider and (in JSONL) the metadata envelope; the renderer knows
+ * the exact shape of all of them, so the budget asks it instead of carrying a
+ * hand-maintained constant that drifts every time the output format changes.
+ */
+function measureNoteFraming(profile: ExportProfile, docs: DocAnalysis[]): number {
+	if (docs.length === 0) return 12;
+	const doc = docs[Math.min(docs.length - 1, Math.floor(docs.length / 2))];
+	const stats: PlanStats = {
+		discovered: 1,
+		kept: 1,
+		droppedByFilter: 0,
+		droppedAsDuplicate: 0,
+		droppedAsStub: 0,
+		droppedAsUnreadable: 0,
+		words: 0,
+		tokens: 0,
+		chars: 0,
+		boilerplateLines: 0,
+		summarized: 0,
+	};
+	const note: RenderedNote = {
+		id: "S01",
+		path: doc.file.path,
+		title: doc.title,
+		body: "",
+		tags: doc.tags.slice(0, 4),
+		aliases: [],
+		// The probe only needs the shape of the line, not the real keys: the
+		// renderers that echo frontmatter are the same ones the size is
+		// measured for.
+		frontmatter: {},
+		words: doc.stats.words,
+		tokens: doc.stats.tokens,
+		chars: doc.stats.chars,
+		modified: doc.file.mtime,
+		created: doc.file.ctime,
+		related: [],
+		inbound: 0,
+		outbound: 0,
+		summaryApplied: false,
+	};
+	try {
+		const unit = renderBundle([note], {
+			format: profile.packaging.format,
+			profileName: profile.name,
+			bundleTitle: "",
+			includeToc: false,
+			tocMaxDepth: 0,
+			tocMaxEntries: 0,
+			includeKnowledgeMap: false,
+			citationIds: profile.packaging.citationIds,
+			headerTemplate: "",
+			footerTemplate: "",
+			divider: profile.packaging.divider,
+			noteHeadingLevel: profile.packaging.noteHeadingLevel,
+			includeManifest: false,
+			generatedAt: new Date(0),
+			roots: profile.targets,
+			stats,
+			repeatHeaders: true,
+		}).units[0];
+		const framing = unit?.tokens ?? 0;
+		if (framing > 0) return framing;
+	} catch {
+		// A custom format must never make the budget fail: fall back to the
+		// historical constant.
+	}
+	return 12;
+}
+
+/**
  * Pre-flight estimate of what the framing of the bundle costs in tokens:
  * the header, the corpus map, and the per-note contents/citation lines.
  *
@@ -1692,12 +1781,19 @@ function estimateOverhead(
 			: `- ${sampleTitle} — *1 234 words*`;
 		perNote += estimateTokens(sample).tokens + 1; // the line itself plus its newline
 	}
-	// What a note costs on top of its body, measured on real bundles: the
-	// `## Title` heading, the source line, the divider, the inline citation
-	// marker and the note's entry in the embedded manifest.
-	let perIncluded = 12;
-	if (profile.packaging.citationIds) perIncluded += 5;
-	if (profile.packaging.manifestEmbedded) perIncluded += 9;
+	// What a note costs on top of its body is measured rather than guessed:
+	// the renderer that will write the bundle renders one representative note
+	// with an empty body, so the heading, the source line, the divider, the
+	// inline citation marker and — for JSONL — the metadata keys are all
+	// counted. Guesswork here is what made a "one file" profile write two
+	// parts: every note was ~11 tokens more expensive than the budget thought.
+	let perIncluded = measureNoteFraming(profile, docs);
+	// Assembly writes the divider between two notes, so every note but the last
+	// pays for it.
+	perIncluded += estimateTokens(profile.packaging.divider).tokens + 2;
+	if (profile.packaging.manifestEmbedded && docs.length > 0) {
+		perIncluded += estimateTokens(`"S01":"${docs[0].file.path}",`).tokens;
+	}
 	// The corpus map lists notes too (reading order, orphans); its entries are
 	// what makes a large bundle's preamble grow with the note count.
 	if (profile.packaging.includeKnowledgeMap) perIncluded += 6;

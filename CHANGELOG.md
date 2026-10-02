@@ -59,6 +59,18 @@ First complete release.
   (links, orphans, most-referenced notes).
 - A token-budget cut on a large vault now names five dropped notes and counts
   the rest instead of emitting one warning per note.
+- Budgets that fit the file they write: the per-note framing is measured by the
+  renderer itself (heading, source line, divider, citation, JSONL keys) instead
+  of a hand-maintained constant, and a summary is priced by the sentences it
+  really keeps (a 28 % budget over six sentences keeps two, i.e. 33 %). On the
+  5 000-note benchmark "Chat context" now fills its single 150 k-token part with
+  829 notes instead of writing two parts.
+- Machine formats survive a note bigger than a part: JSONL, JSON and XML split
+  an oversized note into several *complete* records before serialising (same
+  metadata, `chunk: {index, total}` / `chunk="1/6"`). Previously the chunker cut
+  the rendered text, so a RAG export contained truncated JSON lines and an XML
+  part opened `<document>` without closing it. JSONL units are also marked
+  unsplittable, so nothing can cut a record in half again.
 - Neighbourhood exports: right-click a note to export it together with
   everything it links to and everything that links back, 1 or 2 hops out. The
   link map is built before the analysis pass, so a small neighbourhood export

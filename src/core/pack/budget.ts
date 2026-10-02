@@ -148,13 +148,21 @@ export interface BudgetItem {
 	tokens: number;
 	/** Realized word count; a summary is only applied above the summarizer's floor. */
 	words: number;
+	/** Sentences in the note: a summary keeps whole ones, so this is its floor. */
+	sentences?: number;
 	/** Value signal from the analysis. */
 	signal: number;
 }
 
 /** Adapts analyzed documents to budget items (raw, pre-transform sizes). */
 export function budgetItemsFromDocs(docs: DocAnalysis[]): BudgetItem[] {
-	return docs.map((doc) => ({ path: doc.file.path, tokens: doc.stats.tokens, words: doc.stats.words, signal: doc.signal }));
+	return docs.map((doc) => ({
+		path: doc.file.path,
+		tokens: doc.stats.tokens,
+		words: doc.stats.words,
+		sentences: doc.stats.sentences,
+		signal: doc.signal,
+	}));
 }
 
 /**
@@ -288,7 +296,12 @@ function estimateSummaryTokens(doc: BudgetItem, options: BudgetOptions): number 
 	// and charging them a fraction of it is how a budget silently overfills.
 	if (options.summarizeMinWords > 0 && doc.words < options.summarizeMinWords) return doc.tokens;
 	const ratio = options.summarizeRatio > 0 ? options.summarizeRatio : 0.35;
-	return Math.max(options.minDocTokens, Math.round(doc.tokens * ratio));
+	// A summary is made of whole sentences: a 28 % budget over six sentences
+	// keeps two of them, i.e. 33 % of the note, not 28 %. Charging the ideal
+	// ratio is how a "one file" profile ends up writing two.
+	const sentences = doc.sentences ?? 0;
+	const share = sentences > 0 ? Math.max(Math.ceil(sentences * ratio), 1) / sentences : ratio;
+	return Math.max(options.minDocTokens, Math.round(doc.tokens * share));
 }
 
 /** Value density used to decide which notes survive a budget cut. */

@@ -283,6 +283,116 @@ describe("packaging", () => {
 		for (const part of result.parts) expect(part.tokens).toBeLessThanOrEqual(350);
 	});
 
+	it("keeps an unsplittable unit whole instead of corrupting it", () => {
+		const record = `{"id":"S1","content":"${"word ".repeat(600)}"}`;
+		const unit: PackUnit = {
+			origin: "a.jsonl",
+			id: "S1",
+			title: "Record",
+			content: record,
+			chars: record.length,
+			tokens: 900,
+			splittable: false,
+		};
+		const result = chunkUnits([unit], { mode: "maxTokens", maxTokens: 300, maxChars: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: true });
+		expect(result.parts).toHaveLength(1);
+		expect(result.parts[0].units[0].content).toBe(record);
+		expect(result.warnings.some((w) => w.includes("without corrupting it"))).toBe(true);
+	});
+
+	it("keeps a one-part profile inside its part limit", async () => {
+		// A vault several times bigger than one prompt: the profile is allowed a
+		// single 150 000-token part, so the budget has to drop and summarize
+		// enough to stay inside it — and it has to be right about how much a
+		// summary really saves and what the framing of a note really costs.
+		const paragraph =
+			"Retrieval evaluation compares ranking functions against a fixed set of graded judgements, and the numbers only mean something when the same queries and the same cuts are used every time.";
+		const files = Array.from({ length: 400 }, (_, index) =>
+			makeFile(
+				`notes/note-${String(index).padStart(3, "0")}.md`,
+				note(`Note ${index}`, `${paragraph} ${paragraph} ${paragraph} ${paragraph} ${paragraph} ${paragraph}`),
+			),
+		);
+		const profile = createDefaultProfiles().find((p) => p.id === "chat-context")!;
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		expect(result.parts).toHaveLength(1);
+		expect(result.parts[0].tokens).toBeLessThanOrEqual(150_000);
+		expect(result.stats.kept).toBeGreaterThan(0);
+		// The corpus is much bigger than the part, so something had to give:
+		// notes were summarized, or some were left out entirely.
+		expect(result.stats.summarized > 0 || result.parts[0].sources.length < files.length).toBe(true);
+	});
+
+	it("never cuts a JSONL record in half", async () => {
+		const long = Array.from({ length: 120 }, (_, i) => `Paragraph ${i} explains the ranking pipeline step by step with enough words to matter.`).join("\n\n");
+		const files = [
+			makeFile("notes/long.md", `# Long note\n\n${long}\n`),
+			makeFile("notes/short.md", "# Short\n\nA short note about retrieval.\n"),
+		];
+		const profile = createDefaultProfiles().find((p) => p.id === "rag-chunks")!;
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		const records: Record<string, unknown>[] = [];
+		for (const part of result.parts) {
+			for (const [index, line] of part.content.split("\n").entries()) {
+				if (line.trim() === "") continue;
+				let parsed: Record<string, unknown>;
+				try {
+					parsed = JSON.parse(line) as Record<string, unknown>;
+				} catch (error) {
+					throw new Error(`part ${part.index + 1}, line ${index + 1} is not JSON: ${String(error)}`);
+				}
+				records.push(parsed);
+			}
+		}
+		// The long note was too big for a 1 000-token part: it becomes several
+		// complete records, each carrying the note's metadata and its chunk rank.
+		const pieces = records.filter((record) => record.path === "notes/long.md");
+		expect(pieces.length).toBeGreaterThan(1);
+		for (const piece of pieces) {
+			expect(piece.chunk).toEqual({ index: expect.any(Number), total: pieces.length });
+		}
+		expect(pieces.map((piece) => (piece.chunk as { index: number }).index)).toEqual(pieces.map((_, i) => i + 1));
+		expect(result.warnings.some((w) => w.includes("without corrupting it"))).toBe(false);
+	});
+
+	it("never leaves an XML document unclosed", async () => {
+		const long = Array.from({ length: 200 }, (_, i) => `## Section ${i}\n\nParagraph ${i} explains the ranking pipeline with enough words to matter here.`).join("\n\n");
+		const files = [
+			makeFile("notes/long.md", `# Long note\n\n${long}\n`),
+			makeFile("notes/short.md", "# Short\n\nA short note about retrieval and storage.\n"),
+		];
+		const base = createDefaultProfiles().find((p) => p.id === "rag-chunks")!;
+		const profile = normalizeProfile({ ...base, packaging: { ...base.packaging, format: "xml" } });
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		expect(result.parts.length).toBeGreaterThan(1);
+		for (const part of result.parts) {
+			const open = (part.content.match(/<document[ >]/g) ?? []).length;
+			const close = (part.content.match(/<\/document>/g) ?? []).length;
+			expect(close).toBe(open);
+			expect((part.content.match(/<!\[CDATA\[/g) ?? []).length).toBe((part.content.match(/\]\]>/g) ?? []).length);
+		}
+		// The long note became several documents, each labelled with its rank.
+		expect(result.parts.some((part) => part.content.includes('chunk="1/'))).toBe(true);
+	});
+
+	it("keeps every JSON document complete when a note is chunked", async () => {
+		const long = Array.from({ length: 200 }, (_, i) => `## Section ${i}\n\nParagraph ${i} explains the ranking pipeline with enough words to matter here.`).join("\n\n");
+		const files = [makeFile("notes/long.md", `# Long note\n\n${long}\n`)];
+		const base = createDefaultProfiles().find((p) => p.id === "rag-chunks")!;
+		const profile = normalizeProfile({ ...base, packaging: { ...base.packaging, format: "json" } });
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		expect(result.parts.length).toBeGreaterThan(1);
+		let chunked = 0;
+		for (const part of result.parts) {
+			const parsed = JSON.parse(part.content) as { documents: { chunk?: { index: number; total: number }; id?: string }[] };
+			expect(parsed.documents.length).toBeGreaterThan(0);
+			for (const document of parsed.documents) {
+				if (document.chunk) chunked++;
+			}
+		}
+		expect(chunked).toBeGreaterThan(1);
+	});
+
 	it("splits oversized units at headings and repeats headers", () => {
 		const body = ["## Section A", "a ".repeat(400), "## Section B", "b ".repeat(400), "## Section C", "c ".repeat(400)].join("\n");
 		const big: PackUnit = {

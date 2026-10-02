@@ -187,6 +187,13 @@ A profile is a complete recipe — sources, filters, condensation, packaging, ou
 
 Everything editable in the settings tab: folders and globs, tag/date/word filters, ordering, what to strip or keep, dedupe mode and threshold, summarisation ratio, boilerplate rules, format (Markdown, plain, JSON, JSONL, XML), splitting, overlap, table of contents, corpus map, citation ids, output folder, file-name template, incremental mode, destination limits.
 
+Machine formats stay machine-readable when a note is bigger than a part: JSONL
+records, JSON documents and XML `<document>` elements are cut into several
+complete records (each with `chunk: {index, total}`, `chunk="1/6"`, and the
+note's full metadata) instead of being sliced in the middle. A 4 000-token note
+in a 1 200-token part becomes six parseable records, which is also the shape an
+embedding pipeline wants.
+
 ## How the condensation works
 
 1. **Discover** — the vault is listed once and filtered (folders, globs, tags, dates, size, note cap, output-folder exclusion).
@@ -242,10 +249,16 @@ for it.
 
 A token budget is only useful if it is measured against what will actually be
 written. The pipeline reads and transforms the candidates first, budgets the
-*transformed* sizes, and charges each included note for its framing (heading,
-source line, citation, manifest entry) — so a profile either fills its budget
-(98 % on a 5 000-note vault) or says why it could not, instead of silently
-exporting a fraction of the vault. Contents lists are capped at
+*transformed* sizes, and charges each included note for its framing — the
+renderer paints one note with an empty body and the budget pays exactly what
+that costs (heading, source line, divider, citation marker, and for JSONL the
+metadata keys). Summaries are priced the way they are really built: a summary
+keeps whole sentences, so a 28 % budget on a six-sentence note costs a third of
+it, not 28 %. Both corrections came from the same symptom: "Chat context"
+(one part, 150 000 tokens) filled 150 k of budget and then wrote *two* files,
+because every note was ~12 tokens more expensive than the model believed. It
+now writes one part — 829 notes instead of 858 split across two — and the
+numbers in the report are the numbers on disk. Contents lists are capped at
 `tocMaxEntries` lines; beyond that a single "…and N more notes" line points at
 the manifest.
 
