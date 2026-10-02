@@ -660,6 +660,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			throw new ExportAbortedError("The export was aborted before writing any file.");
 		}
 		for (let i = 0; i < parts.length; i++) {
+			// Cancellation is checked between writes too: the write phase is the
+			// destructive one, and a long bundle must not be un-cancellable just
+			// because it is already past the analysis.
+			check();
 			const target = joinOutputPath(output, names[i]);
 			const finalPath = await deps.sink.write(target, parts[i].content);
 			parts[i].path = finalPath;
@@ -667,6 +671,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		}
 
 		if (profile.packaging.manifestSidecar && parts.length > 0) {
+			check();
 			const manifestPath = joinOutputPath(output, names[0].replace(/\.md$|\.txt$|\.jsonl?$|\.xml$/i, "") + ".manifest.json");
 			const previous = deps.readPreviousManifest ? await deps.readPreviousManifest(profile.id) : null;
 			const manifestWithHashes: ExportManifest = { ...manifest, hashes: manifest.hashes };
@@ -675,6 +680,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		}
 
 		if (parts.length > 1 && profile.output.destination === "vault") {
+			check();
 			// A small index file makes a 50-part bundle navigable.
 			const indexPath = joinOutputPath(
 				output,
@@ -684,6 +690,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		}
 
 		if (deps.clipboard && (output.alsoCopyToClipboard || output.destination === "clipboard")) {
+			check();
 			progress({ phase: "write", progress: 0.97, message: "Copying to the clipboard…" });
 			const text = parts.map((p) => p.content).join("\n\n");
 			await deps.clipboard.write(text);

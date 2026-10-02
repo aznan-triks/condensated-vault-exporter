@@ -309,3 +309,138 @@ describe("export dialog and settings tab", () => {
 		}
 	});
 });
+
+describe("built-in profiles end to end", () => {
+	beforeEach(() => {
+		Notice.messages.length = 0;
+	});
+
+	it("every shipped profile runs on the same vault", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const results: { id: string; ok: boolean; parts: number; destination: string; why: string }[] = [];
+		for (const profile of plugin.settings.profiles) {
+			const outcome = await plugin.runner.run(profile, { mode: "preview" });
+			results.push({
+				id: profile.id,
+				ok: outcome.ok,
+				parts: outcome.result?.parts.length ?? -1,
+				destination: profile.output.destination,
+				why: outcome.error ?? "",
+			});
+		}
+		for (const result of results) {
+			expect(`${result.id}: ${result.why}`).toBe(`${result.id}: `);
+			expect(result.ok).toBe(true);
+			expect(result.parts).toBeGreaterThan(0);
+		}
+		// Clipboard profiles must not have written anything into the vault.
+		expect(fake.vault.files.size).toBe(Object.keys(VAULT).length);
+	});
+
+	it("rolls a cancelled export back, even when it was already writing", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const profile = plugin.settings.profiles[0];
+		profile.packaging.chunking = { ...profile.packaging.chunking, mode: "maxTokens", maxTokens: 90, overlapTokens: 0 };
+		await plugin.saveSettings();
+
+		// Cancel right after the first part hits the vault: the run must delete
+		// what it has already written instead of leaving a truncated bundle.
+		const originalWrite = fake.vault.adapter.write.bind(fake.vault.adapter);
+		let writes = 0;
+		fake.vault.adapter.write = async (path: string, content: string) => {
+			await originalWrite(path, content);
+			writes++;
+			if (writes === 1) plugin.runner.cancel();
+		};
+
+		const outcome = await plugin.runner.run(profile, {});
+		expect(outcome.ok).toBe(false);
+		expect(outcome.cancelled).toBe(true);
+		expect(writes).toBeGreaterThan(0);
+		const leftovers = Array.from(fake.vault.files.keys()).filter((path) => path.startsWith("Exports/"));
+		expect(leftovers).toHaveLength(0);
+		expect(Notice.messages.some((message) => /partially written file\(s\) were removed/.test(message))).toBe(true);
+	});
+
+	it("round-trips the settings through save and load unchanged", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.concurrency = 11;
+		plugin.settings.activeProfileId = plugin.settings.profiles[1].id;
+		plugin.settings.profiles[0].filters.maxNotes = 7;
+		await plugin.saveSettings();
+		const saved = plugin.data as never;
+
+		const second = createFakeApp(VAULT);
+		const reloaded = new CondensatedVaultExporter(second.app as never, {
+			id: "condensated-vault-exporter",
+			version: "1.0.0",
+		} as never) as unknown as TestPlugin;
+		(reloaded as unknown as { loadData(): Promise<unknown> }).loadData = (async () => saved) as never;
+		await reloaded.onload();
+		second.ready();
+		expect(reloaded.settings.concurrency).toBe(11);
+		expect(reloaded.settings.activeProfileId).toBe(plugin.settings.activeProfileId);
+		expect(reloaded.settings.profiles[0].filters.maxNotes).toBe(7);
+	});
+
+	it("survives a corrupted settings blob", async () => {
+		const fake = createFakeApp(VAULT);
+		const plugin = new CondensatedVaultExporter(fake.app as never, {
+			id: "condensated-vault-exporter",
+			version: "1.0.0",
+		} as never) as unknown as TestPlugin;
+		(plugin as unknown as { loadData(): Promise<unknown> }).loadData = (async () => ({
+			version: 99,
+			profiles: [{ id: "x" }, null, 42],
+			activeProfileId: "nope",
+			state: { version: 1, profiles: null, history: [{ broken: true }] },
+		})) as never;
+		await plugin.onload();
+		fake.ready();
+		expect(plugin.settings.profiles.length).toBeGreaterThan(0);
+		expect(plugin.settings.profiles.every((profile) => profile.id && profile.name)).toBe(true);
+		expect(plugin.settings.activeProfileId).toBeTruthy();
+		// Still able to export.
+		await plugin.commands.find((c) => c.id === "export-active-profile")!.callback?.();
+		await settle(fake, plugin);
+		expect(Array.from(fake.vault.files.keys()).some((path) => path.startsWith("Exports/"))).toBe(true);
+	});
+
+	it("stops a running export from the cancel command", async () => {
+		// A big enough vault that cancellation lands in the middle of the run.
+		const big: Record<string, string> = {};
+		for (let i = 0; i < 80; i++) {
+			big[`notes/n${String(i).padStart(3, "0")}.md`] =
+				`# Note ${i}\n\n${Array.from({ length: 8 }, (_, s) => `Sentence ${s} about topic ${i % 5} and its details, with enough words to count.`).join(" ")}\n`;
+		}
+		const { fake, plugin } = bootApp(big);
+		await plugin.onload();
+		fake.ready();
+		const original = fake.vault.cachedRead.bind(fake.vault);
+		fake.vault.cachedRead = async (file: { path: string }) => {
+			await new Promise((resolve) => setTimeout(resolve, 3));
+			return original(file as never);
+		};
+
+		const command = plugin.commands.find((c) => c.id === "cancel-export")!;
+		expect(command.checkCallback?.(true)).toBe(false); // idle → disabled
+		const started = plugin.runner.run(plugin.settings.profiles[0], {});
+		for (let i = 0; i < 100 && !plugin.runner.busy; i++) await new Promise((resolve) => setTimeout(resolve, 2));
+		expect(plugin.runner.busy).toBe(true);
+		expect(command.checkCallback?.(true)).toBe(true);
+		// `cancel-export` is a checkCallback command: run it for real.
+		expect(command.checkCallback?.(false)).toBe(true);
+		const outcome = await started;
+		expect(outcome.ok).toBe(false);
+		expect(Notice.messages.some((message) => /cancel/i.test(message))).toBe(true);
+		// A cancelled run leaves no half-written bundle behind.
+		const leftovers = Array.from(fake.vault.files.keys()).filter((path) => path.startsWith("Exports/"));
+		expect(leftovers).toHaveLength(0);
+	});
+});

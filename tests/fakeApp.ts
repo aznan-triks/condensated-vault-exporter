@@ -3,8 +3,8 @@
  * bus, workspace and status-bar API the plugin uses.
  */
 
-import type { App, Command, TFile } from "./types";
-import { createElement, Component, Notice, PluginSettingTab, type El } from "./obsidianMock";
+import type { App, Command } from "./types";
+import { createElement, Component, Notice, PluginSettingTab, TFile, type El } from "./obsidianMock";
 
 export interface FakeVaultFile {
 	path: string;
@@ -19,16 +19,24 @@ export class FakeVault {
 	files = new Map<string, FakeVaultFile>();
 	folders = new Set<string>();
 	private handlers = new Map<string, EventHandler[]>();
+	/**
+	 * Real `TFile` instances: the plugin layer tests `instanceof TFile` before
+	 * using `cachedRead`, exactly like the production code path does.
+	 */
+	private fileCache = new Map<string, TFile>();
 
 	constructor(initial: Record<string, string> = {}) {
 		for (const [path, content] of Object.entries(initial)) this.seed(path, content);
 	}
 
 	seed(path: string, content: string, mtime = Date.now()): TFile {
-		this.files.set(path, { path, content, mtime, ctime: mtime });
+		const previous = this.files.get(path);
+		const ctime = previous?.ctime ?? mtime;
+		this.files.set(path, { path, content, mtime, ctime });
 		const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 		if (folder !== "") this.folders.add(folder);
-		return this.getAbstractFileByPath(path) as TFile;
+		this.fileCache.set(path, new TFile(path, Buffer.byteLength(content, "utf8"), mtime, ctime));
+		return this.fileCache.get(path)!;
 	}
 
 	getFiles(): TFile[] {
@@ -38,16 +46,13 @@ export class FakeVault {
 	}
 
 	getAbstractFileByPath(path: string): TFile | null {
-		if (this.files.has(path)) {
-			const file = this.files.get(path)!;
-			return {
-				path,
-				name: path.split("/").pop() ?? path,
-				basename: (path.split("/").pop() ?? path).replace(/\.[^.]+$/, ""),
-				extension: path.split(".").pop() ?? "",
-				stat: { size: file.content.length, mtime: file.mtime, ctime: file.ctime },
-				vault: this,
-			} as unknown as TFile;
+		const existing = this.fileCache.get(path);
+		if (existing) {
+			// Keep the stat fresh: content changes through `adapter.write` and
+			// `modify` must be visible to the file list.
+			const entry = this.files.get(path);
+			if (entry) existing.stat = { size: Buffer.byteLength(entry.content, "utf8"), mtime: entry.mtime, ctime: entry.ctime };
+			return existing;
 		}
 		return null;
 	}
@@ -79,6 +84,7 @@ export class FakeVault {
 
 	async delete(file: TFile): Promise<void> {
 		this.files.delete(file.path);
+		this.fileCache.delete(file.path);
 		this.emit("delete", file);
 	}
 
@@ -86,7 +92,9 @@ export class FakeVault {
 		const entry = this.files.get(file.path);
 		if (!entry) throw new Error(`missing ${file.path}`);
 		this.files.delete(file.path);
+		this.fileCache.delete(file.path);
 		this.files.set(newPath, { ...entry, path: newPath });
+		this.fileCache.set(newPath, new TFile(newPath, Buffer.byteLength(entry.content, "utf8"), entry.mtime, entry.ctime));
 		this.emit("rename", file, file.path);
 	}
 

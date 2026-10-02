@@ -318,6 +318,28 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Maximum file size (MB)")
+			.setDesc("Notes larger than this are skipped (0 = no limit).")
+			.addText((text) =>
+				text.setValue(String(profile.filters.maxFileMegabytes)).onChange(async (value) => {
+					const parsed = Number.parseFloat(value);
+					if (Number.isFinite(parsed) && parsed >= 0) {
+						profile.filters.maxFileMegabytes = parsed;
+						await this.plugin.saveSettings();
+					}
+				}),
+			);
+
+		new Setting(root)
+			.setName("Skip empty notes")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.filters.skipEmpty).onChange(async (value) => {
+					profile.filters.skipEmpty = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Respect Obsidian's excluded files")
 			.setDesc("Also skip the notes listed under Settings → Files & Links → Excluded files.")
 			.addToggle((toggle) =>
@@ -448,9 +470,9 @@ export class ExportSettingsTab extends PluginSettingTab {
 			.setDesc("Replace `![[Other note]]` with the actual content of that note.")
 			.addToggle((toggle) =>
 				toggle
-					.setValue(profile.transform.embeds === "transclude")
+					.setValue(profile.condensation.inlineTransclusions)
 					.onChange(async (value) => {
-						profile.transform.embeds = value ? "transclude" : "reference";
+						profile.condensation.inlineTransclusions = value;
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -526,6 +548,56 @@ export class ExportSettingsTab extends PluginSettingTab {
 			.addText((text) =>
 				text.setValue(String(chunking.overlapTokens)).onChange(async (value) => {
 					chunking.overlapTokens = Math.max(0, Number.parseInt(value, 10) || 0);
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Glossary")
+			.setDesc("Harvest definition-style lines into a glossary at the end of the bundle.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.includeGlossary).onChange(async (value) => {
+					profile.packaging.includeGlossary = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Manifest file")
+			.setDesc("Write a `.manifest.json` next to the bundle: sources, hashes, statistics.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.manifestSidecar).onChange(async (value) => {
+					profile.packaging.manifestSidecar = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Manifest in the bundle")
+			.setDesc("Append the citation map and the statistics to the first part, for the model itself.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.manifestEmbedded).onChange(async (value) => {
+					profile.packaging.manifestEmbedded = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Repeat the note header")
+			.setDesc("Start every continuation part with the title of the note it continues.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.chunking.repeatHeader).onChange(async (value) => {
+					profile.packaging.chunking.repeatHeader = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Add a missing note title")
+			.setDesc("Notes without a heading get one, so a continuation part still says what it is about.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.transform.ensureTitle).onChange(async (value) => {
+					profile.transform.ensureTitle = value;
 					await this.plugin.saveSettings();
 				}),
 			);
