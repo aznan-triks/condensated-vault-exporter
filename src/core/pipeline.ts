@@ -56,7 +56,7 @@ import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
 import { neighbourhoodScope, type Neighbourhood } from "./scope";
 import { buildInstructions } from "./pack/instructions";
-import { buildExportReport, type ReportEntry } from "./pack/report";
+import { buildExportReport, type ReportEntry, type ReportGraph } from "./pack/report";
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
 import { allocateBudget, scoreDocuments, type BudgetDecision } from "./pack/budget";
 import { chunkUnits, type PackUnit } from "./pack/chunk";
@@ -359,8 +359,17 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			allowTruncate: true,
 		},
 	);
-	for (const path of budget.dropped) warnings.push(`Dropped ${path} — the token budget could not fit it.`);
-	if (budget.dropped.length > 0) {
+	// A large vault can lose thousands of notes to the budget at once: name a
+	// few so the pattern is visible, then one line for the rest. Repeating the
+	// same sentence four thousand times is noise, and every warning ends up in
+	// the manifest and the report.
+	const namedDrops = budget.dropped.slice(0, 5);
+	for (const path of namedDrops) warnings.push(`Dropped ${path} — the token budget could not fit it.`);
+	if (budget.dropped.length > namedDrops.length) {
+		warnings.push(
+			`…and ${budget.dropped.length - namedDrops.length} more note(s) were dropped to respect the token budget.`,
+		);
+	} else if (budget.dropped.length > 0) {
 		warnings.push(`${budget.dropped.length} note(s) were dropped to respect the token budget.`);
 	}
 
@@ -393,6 +402,27 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 
 	const citationByPath = new Map<string, string>(included.map((e) => [e.doc.file.path, e.citationId]));
 	const analysisByPath = new Map<string, DocAnalysis>(analyses.map((doc) => [doc.file.path, doc]));
+
+	// Cross-references are resolved once, from the corpus-wide link graph, so
+	// every note can name the notes it links to and the notes that link back.
+	// Only bundled notes get a citation id — the point is for a reader (human
+	// or model) to follow the graph without leaving the bundle.
+	const noteRef = (path: string): { id: string; title: string } | null => {
+		const id = citationByPath.get(path);
+		if (!id) return null;
+		const doc = analysisByPath.get(path);
+		return { id, title: doc?.title ?? stripExtension(basename(path)) };
+	};
+	const crossRefs = (paths: string[], max: number): { id: string; title: string }[] => {
+		const refs: { id: string; title: string }[] = [];
+		for (const path of paths) {
+			const ref = noteRef(path);
+			if (ref) refs.push(ref);
+			if (refs.length >= max) break;
+		}
+		return refs;
+	};
+	const MAX_EDGES_PER_NOTE = 24;
 
 	// ---------------------------------------------------------------- render
 	const rendered: RenderedNote[] = [];
@@ -427,6 +457,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		// only repeat the most expensive call of the run unchanged.
 		const tokenCount = summaryApplied || truncated ? estimateTokens(body).tokens : preparedNote.tokens;
 		const node = graph.nodes.get(doc.file.path);
+		const linkRefs = crossRefs(node?.links ?? [], MAX_EDGES_PER_NOTE);
+		const backlinkRefs = crossRefs(node?.backlinks ?? [], MAX_EDGES_PER_NOTE);
 		const relatedNotes = (related.byPath.get(doc.file.path) ?? [])
 			.map((r) => ({
 				id: citationByPath.get(r.path) ?? "",
@@ -451,6 +483,9 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			related: relatedNotes,
 			inbound: node?.inDegree ?? 0,
 			outbound: node?.outDegree ?? 0,
+			links: linkRefs,
+			backlinks: backlinkRefs,
+			outsideLinks: node?.outside ?? 0,
 			summaryApplied,
 			duplicateOf: undefined,
 			truncated,
@@ -780,6 +815,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		truncated: budget.truncated.length,
 		warnings,
 		delta: previousManifest ? delta : undefined,
+		graph: reportGraph(rendered),
 	});
 	const reportPath =
 		profile.packaging.reportFile && reportText !== ""
@@ -1614,6 +1650,21 @@ function estimateOverhead(
 /* -------------------------------------------------------------------------- */
 /*  Manifest                                                                   */
 /* -------------------------------------------------------------------------- */
+
+/** The graph facts a report can act on: what links to what inside the bundle. */
+function reportGraph(rendered: RenderedNote[]): ReportGraph {
+	const links = rendered.reduce((acc, note) => acc + (note.links?.length ?? 0), 0);
+	const orphans = rendered
+		.filter((note) => !note.duplicateOf && note.inbound === 0 && note.outbound === 0)
+		.map((note) => note.path);
+	const hubs = [...rendered]
+		.filter((note) => !note.duplicateOf && note.inbound > 0)
+		.sort((a, b) => b.inbound - a.inbound || a.path.localeCompare(b.path))
+		.slice(0, 8)
+		.map((note) => ({ path: note.path, inbound: note.inbound }));
+	const broken = rendered.reduce((acc, note) => acc + (note.outsideLinks ?? 0), 0);
+	return { links, orphans, hubs, broken };
+}
 
 function buildManifest(
 	profile: ExportProfile,

@@ -18,6 +18,12 @@ export interface GraphNode {
 	centrality: number;
 	/** True when the note has no in- or out-links inside the corpus. */
 	orphan: boolean;
+	/** Resolved outgoing targets inside the corpus, in link order. */
+	links: string[];
+	/** Resolved incoming sources inside the corpus, in encounter order. */
+	backlinks: string[];
+	/** Distinct outgoing targets that point outside the corpus. */
+	outside: number;
 }
 
 export interface BrokenLink {
@@ -30,6 +36,8 @@ export interface LinkGraph {
 	hubs: GraphNode[];
 	orphans: GraphNode[];
 	broken: BrokenLink[];
+	/** Total unresolved targets, even beyond the reported sample. */
+	brokenTotal: number;
 	/** Notes that are only reachable from a single other note. */
 	deadEnds: GraphNode[];
 }
@@ -56,24 +64,38 @@ export function buildLinkGraph(docs: DocAnalysis[], options: Partial<GraphOption
 			outDegree: 0,
 			centrality: 0,
 			orphan: false,
+			links: [],
+			backlinks: [],
+			outside: 0,
 		});
 	}
 
 	const edges: { from: string; to: string }[] = [];
 	const broken: BrokenLink[] = [];
+	let brokenTotal = 0;
 	for (const doc of docs) {
 		const seen = new Set<string>();
 		for (const target of doc.outgoing) {
 			const resolved = resolveLinkTarget(target, doc.file.path, pathIndex, nameIndex);
 			if (!resolved) {
+				brokenTotal++;
 				if (broken.length < opts.maxBrokenReported) broken.push({ from: doc.file.path, target });
+				const key = target.trim().toLowerCase();
+				if (key !== "" && !seen.has(`\u0000${key}`)) {
+					seen.add(`\u0000${key}`);
+					nodes.get(doc.file.path)!.outside++;
+				}
 				continue;
 			}
 			if (resolved === doc.file.path || seen.has(resolved)) continue;
 			seen.add(resolved);
 			edges.push({ from: doc.file.path, to: resolved });
-			nodes.get(doc.file.path)!.outDegree++;
-			nodes.get(resolved)!.inDegree++;
+			const source = nodes.get(doc.file.path)!;
+			const destination = nodes.get(resolved)!;
+			source.outDegree++;
+			source.links.push(resolved);
+			destination.inDegree++;
+			destination.backlinks.push(doc.file.path);
 		}
 	}
 
@@ -126,7 +148,7 @@ export function buildLinkGraph(docs: DocAnalysis[], options: Partial<GraphOption
 		.filter((node) => node.outDegree === 0 && node.inDegree > 0)
 		.sort((a, b) => b.inDegree - a.inDegree || a.path.localeCompare(b.path))
 		.slice(0, 25);
-	return { nodes, hubs, orphans, broken, deadEnds };
+	return { nodes, hubs, orphans, broken, brokenTotal, deadEnds };
 }
 
 /** Resolves link targets once, for reuse by the renderer. */

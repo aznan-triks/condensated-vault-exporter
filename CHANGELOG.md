@@ -40,6 +40,13 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Bundles now cross-reference themselves: every note names the notes it
+  links to and the notes that link back, by citation id, in Markdown, plain
+  text, XML and JSON. A model reading the bundle can follow the graph instead
+  of guessing. The report gained a "How the notes hang together" section
+  (links, orphans, most-referenced notes).
+- A token-budget cut on a large vault now names five dropped notes and counts
+  the rest instead of emitting one warning per note.
 - Neighbourhood exports: right-click a note to export it together with
   everything it links to and everything that links back, 1 or 2 hops out. The
   link map is built before the analysis pass, so a small neighbourhood export

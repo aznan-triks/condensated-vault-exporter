@@ -6,11 +6,20 @@ Profile **NotebookLM** · generated 2026-01-20 12:00 · 31 ms
 
 - 13 of 13 note(s) (100 %) · 645 words · ~873 tokens
 - 1 part
-- `Exports/NotebookLM/vault - 2026-01-20 NotebookLM.md` — 14 sources, ~2.1k tokens
+- `Exports/NotebookLM/vault - 2026-01-20 NotebookLM.md` — 14 sources, ~2.2k tokens
 
 ## What was left out
 
 - Duplicate of `Meetings/2026-01-12 standup.md` (similarity 92 %): `Meetings/2026-01-19 standup.md`
+
+## How the notes hang together
+
+- 9 links between bundled notes · 4 orphan notes · 0 links leading outside the bundle
+- Most referenced: `Projects/Atlas ranking.md` (2), `Projects/Atlas retrieval.md` (2), `Notes/Embeddings cheat sheet.md` (1), `Notes/Retrieval log.md` (1), `Projects/Atlas evaluation.md` (1)
+- `Daily/2026-01-15.md` — nothing links to or from this note
+- `Daily/2026-01-16.md` — nothing links to or from this note
+- `Daily/2026-01-17.md` — nothing links to or from this note
+- `Meetings/2026-01-12 standup.md` — nothing links to or from this note
 
 ## What was cleaned up
 
@@ -30,6 +39,6 @@ The most frequent repeated lines:
 
 - ✅ 1 part of the 50 allowed
 - ✅ largest part 1.4k of 500k words
-- ✅ largest part 9.6 kB of 200 MB
+- ✅ largest part 10 kB of 200 MB
 
-*9.6 kB written by Condensated Vault Exporter.*
+*10 kB written by Condensated Vault Exporter.*

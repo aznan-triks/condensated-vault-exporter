@@ -40,6 +40,17 @@ export interface ReportPart {
 	bytes: number;
 }
 
+export interface ReportGraph {
+	/** Edges between bundled notes. */
+	links: number;
+	/** Note paths with no link in or out of the bundle. */
+	orphans: string[];
+	/** Most-referenced notes, with their inbound link count. */
+	hubs: { path: string; inbound: number }[];
+	/** Outgoing targets that do not resolve inside the bundle. */
+	broken: number;
+}
+
 export interface ExportReportInput {
 	profileName: string;
 	generatedAt: Date;
@@ -57,6 +68,7 @@ export interface ExportReportInput {
 	truncated: number;
 	warnings: string[];
 	delta?: ExportDelta;
+	graph?: ReportGraph;
 }
 
 /** How many individual lines of a list the report spells out. */
@@ -142,6 +154,26 @@ export function buildExportReport(input: ExportReportInput): string {
 		lines.push(...capped(leftOut, (entry) => bullet(entry.path, entry.reason !== "" ? ` — ${entry.reason}` : "")));
 		if (stats.kept === 0) {
 			lines.push("", "> Nothing was kept: check the profile's folder, tag and date filters.");
+		}
+		lines.push("");
+	}
+
+	// -- how the notes hang together -------------------------------------------
+	if (input.graph && input.graph.links > 0) {
+		const graph = input.graph;
+		lines.push("## How the notes hang together", "");
+		lines.push(
+			`- ${plural(graph.links, "link")} between bundled notes · ${plural(graph.orphans.length, "orphan note")} · ${plural(
+				graph.broken,
+				"link",
+			)} leading outside the bundle`,
+		);
+		const topHubs = graph.hubs.filter((hub) => hub.inbound > 0).slice(0, 5);
+		if (topHubs.length > 0) {
+			lines.push(`- Most referenced: ${topHubs.map((hub) => `\`${hub.path}\` (${hub.inbound})`).join(", ")}`);
+		}
+		if (graph.orphans.length > 0) {
+			lines.push(...capped(graph.orphans, (path) => bullet(path, " — nothing links to or from this note")));
 		}
 		lines.push("");
 	}

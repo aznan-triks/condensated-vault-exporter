@@ -34,6 +34,12 @@ export interface RenderedNote {
 	related: { id: string; title: string; similarity: number }[];
 	inbound: number;
 	outbound: number;
+	/** Notes inside the bundle this note links to (citation ids and titles). */
+	links?: { id: string; title: string }[];
+	/** Notes inside the bundle that link to this one. */
+	backlinks?: { id: string; title: string }[];
+	/** Distinct outgoing links that point outside the bundle. */
+	outsideLinks?: number;
 	summaryApplied: boolean;
 	duplicateOf?: string;
 	truncated?: boolean;
@@ -172,6 +178,11 @@ function markdownMeta(note: RenderedNote): string {
 	if (note.tags.length > 0) parts.push(note.tags.slice(0, 8).map((t) => `#${t}`).join(" "));
 	if (note.modified > 0) parts.push(`updated ${isoDate(note.modified)}`);
 	if (note.inbound + note.outbound > 0) parts.push(`${note.inbound} in / ${note.outbound} out links`);
+	const links = note.links ?? [];
+	if (links.length > 0) parts.push(`links: ${links.slice(0, 6).map((l) => `${l.id} ${l.title}`).join(", ")}`);
+	const backlinks = note.backlinks ?? [];
+	if (backlinks.length > 0) parts.push(`linked from: ${backlinks.slice(0, 6).map((l) => `${l.id} ${l.title}`).join(", ")}`);
+	if ((note.outsideLinks ?? 0) > 0) parts.push(`${note.outsideLinks} link(s) outside this bundle`);
 	if (note.related.length > 0) {
 		parts.push(`related: ${note.related.slice(0, 4).map((r) => `${r.id} ${r.title}`).join(", ")}`);
 	}
@@ -190,6 +201,10 @@ function renderPlainUnit(note: RenderedNote, options: RenderOptions): PackUnit {
 	const metaParts = [`path: ${note.path}`, `${note.words} words`];
 	if (note.tags.length > 0) metaParts.push(`tags: ${note.tags.map((t) => `#${t}`).join(" ")}`);
 	if (note.modified > 0) metaParts.push(`updated: ${isoDate(note.modified)}`);
+	const linkRefs = (note.links ?? []).slice(0, 6);
+	if (linkRefs.length > 0) metaParts.push(`links to: ${linkRefs.map((l) => `${l.id} ${l.title}`).join(", ")}`);
+	const backrefs = (note.backlinks ?? []).slice(0, 6);
+	if (backrefs.length > 0) metaParts.push(`linked from: ${backrefs.map((l) => `${l.id} ${l.title}`).join(", ")}`);
 	const content = `${rule}\n${label}${note.title.toUpperCase()}\n${metaParts.join(" | ")}\n${rule}\n\n${stripMarkdown(note.body).trim()}`;
 	return {
 		origin: note.path,
@@ -215,7 +230,14 @@ function renderJsonUnit(note: RenderedNote, options: RenderOptions): PackUnit {
 		modified: note.modified > 0 ? new Date(note.modified).toISOString() : undefined,
 		words: note.words,
 		tokens: note.tokens,
-		links: { inbound: note.inbound, outbound: note.outbound },
+		links: {
+			inbound: note.inbound,
+			outbound: note.outbound,
+			// Cross-references inside the bundle, as citation ids.
+			to: (note.links ?? []).map((l) => l.id),
+			from: (note.backlinks ?? []).map((l) => l.id),
+			outside: note.outsideLinks || undefined,
+		},
 		related: note.related.length > 0 ? note.related.map((r) => ({ id: r.id, title: r.title, similarity: r.similarity })) : undefined,
 		summaryApplied: note.summaryApplied || undefined,
 		truncated: note.truncated || undefined,
@@ -251,10 +273,19 @@ function renderXmlUnit(note: RenderedNote, options: RenderOptions): PackUnit {
 	const related = note.related.map(
 		(r) => `    <related id="${escapeXml(r.id)}" similarity="${r.similarity.toFixed(3)}">${escapeXml(r.title)}</related>`,
 	);
+	const references = (note.links ?? []).map(
+		(l) => `    <link target="${escapeXml(l.id)}">${escapeXml(l.title)}</link>`,
+	);
+	const backrefs = (note.backlinks ?? []).map(
+		(l) => `    <backlink source="${escapeXml(l.id)}">${escapeXml(l.title)}</backlink>`,
+	);
 	const content =
 		`  <document ${attributes.join(" ")}>\n` +
 		(meta.length > 0 ? `  <metadata>\n${meta.join("\n")}\n  </metadata>\n` : "") +
 		(related.length > 0 ? `  <relations>\n${related.join("\n")}\n  </relations>\n` : "") +
+		(references.length + backrefs.length > 0
+			? `  <references${(note.outsideLinks ?? 0) > 0 ? ` outside="${note.outsideLinks}"` : ""}>\n${[...references, ...backrefs].join("\n")}\n  </references>\n`
+			: "") +
 		`    <content><![CDATA[${note.body.replace(/]]>/g, "]]]]><![CDATA[>")}]]></content>\n` +
 		`  </document>`;
 	return {

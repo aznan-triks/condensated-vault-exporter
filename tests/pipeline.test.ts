@@ -1294,3 +1294,80 @@ describe("neighbourhood exports", () => {
 		expect(result.stats.kept).toBe(1);
 	});
 });
+
+describe("cross-references between bundled notes", () => {
+	const graphVault = () => [
+		makeFile("moc.md", note("Retrieval MOC", "Start here, then read [[alpha]] and [[beta]] for the details of the system.")),
+		makeFile("alpha.md", note("Alpha design", "Alpha is the design note; it links back to [[moc]] and out to [[outside]] for the constraints.")),
+		makeFile("beta.md", note("Beta design", "Beta covers storage and is referenced from the map of content alongside alpha.")),
+		makeFile("outside.md", "x"),
+	];
+
+	it("names linked notes by citation id in the markdown bundle", async () => {
+		const sink = memorySink();
+		const result = await runExport({ profile: testProfile() }, { vault: fakeVault(graphVault()), sink });
+		const bundle = result.parts.map((part) => part.content).join("\n");
+		// The corpus is ranked, so ids are not in vault order: read them back
+		// from the contents list instead of assuming "the second note is S02".
+		const ids = new Map<string, string>();
+		for (const line of bundle.split("\n")) {
+			const match = /^- `(S\d+)` (.+?) — /.exec(line);
+			if (match) ids.set(match[2], match[1]);
+		}
+		const mocId = ids.get("Retrieval MOC")!;
+		const alphaId = ids.get("Alpha design")!;
+		const betaId = ids.get("Beta design")!;
+		expect(bundle).toContain(`links: ${alphaId} Alpha design, ${betaId} Beta design`);
+		expect(bundle).toContain(`linked from: ${mocId} Retrieval MOC`);
+		// `outside.md` is a stub, so it is not bundled: the link is counted, not named.
+		expect(bundle).toContain("1 link(s) outside this bundle");
+	});
+
+	it("exposes the same graph as ids in the JSONL stream", async () => {
+		const sink = memorySink();
+		const profile = testProfile({
+			packaging: {
+				...testProfile().packaging,
+				format: "jsonl",
+				chunking: { mode: "single", maxChars: 0, maxTokens: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: false },
+				includeToc: false,
+				includeKnowledgeMap: false,
+				includeManifest: false,
+			} as never,
+		});
+		const result = await runExport({ profile }, { vault: fakeVault(graphVault()), sink });
+		const notes = result.parts[0].content
+			.split("\n")
+			.map((line) => JSON.parse(line) as { type?: string; id?: string; title?: string; links: { to: string[]; from: string[]; outside?: number } })
+			.filter((entry) => entry.type !== "bundle");
+		const moc = notes.find((entry) => entry.title === "Retrieval MOC")!;
+		const alpha = notes.find((entry) => entry.title === "Alpha design")!;
+		const beta = notes.find((entry) => entry.title === "Beta design")!;
+		expect(moc.links.to).toEqual([alpha.id, beta.id]);
+		// Alpha links back to the map, so the map has one inbound link of its own.
+		expect(moc.links.from).toEqual([alpha.id]);
+		expect(alpha.links.to).toEqual([moc.id]);
+		expect(alpha.links.from).toEqual([moc.id]);
+		expect(alpha.links.outside).toBe(1);
+		expect(beta.links.to).toEqual([]);
+		expect(beta.links.from).toEqual([moc.id]);
+		expect(beta.links.outside).toBeUndefined();
+	});
+});
+
+describe("corpus map in the export report", () => {
+	it("summarizes how the bundled notes hang together", async () => {
+		const files = [
+			makeFile("moc.md", note("Retrieval MOC", "The map links to [[hub]] and to [[lonely]] so the report has something to say about the corpus.")),
+			makeFile("hub.md", note("Hub note", "The hub is linked from the map and links back to [[moc]], and it is long enough to be kept in the bundle.")),
+			makeFile("lonely.md", note("Lonely note", "Nothing points here and this note points nowhere at all, which makes it an orphan in the corpus map.")),
+		];
+		const profile = testProfile({ packaging: { ...testProfile().packaging, reportFile: true } });
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		const report = result.report ?? "";
+		expect(report).toContain("## How the notes hang together");
+		expect(report).toMatch(/\d+ links between bundled notes/);
+		expect(report).toContain("Most referenced:");
+	});
+});

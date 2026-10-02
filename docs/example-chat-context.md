@@ -147,7 +147,7 @@ The embedding service rate limits batch sizes above 64 paragraphs.
 
 ## S05 · Retrieval MOC
 
-> `MOCs/Retrieval MOC.md` · 27 words · updated 2026-01-20 · 0 in / 6 out links
+> `MOCs/Retrieval MOC.md` · 27 words · updated 2026-01-20 · 0 in / 6 out links · links: S10 Atlas retrieval, S09 Atlas ranking, S08 Atlas evaluation, S11 BM25, S12 Reciprocal rank fusion, S06 Embeddings cheat sheet
 
 - Atlas retrieval
 - Atlas ranking
@@ -162,7 +162,7 @@ The map of content for everything retrieval: the project, the methods and the lo
 
 ## S06 · Embeddings cheat sheet
 
-> `Notes/Embeddings cheat sheet.md` · 48 words · updated 2026-01-20 · 1 in / 0 out links
+> `Notes/Embeddings cheat sheet.md` · 48 words · updated 2026-01-20 · 1 in / 0 out links · linked from: S05 Retrieval MOC
 
 Norm is not similarity: always normalise before taking a dot product.
 
@@ -176,7 +176,7 @@ Negative samples matter more than the encoder for ranking quality.
 
 ## S07 · Retrieval log
 
-> `Notes/Retrieval log.md` · 58 words · updated 2026-01-20 · 1 in / 0 out links
+> `Notes/Retrieval log.md` · 58 words · updated 2026-01-20 · 1 in / 0 out links · linked from: S08 Atlas evaluation
 
 ### 2026-01-09
 Recall@10 0.82, MRR 0.61. Reranking with the logistic model added two points of MRR and nothing on recall.
@@ -191,7 +191,7 @@ Recall@10 0.83, MRR 0.63. Nothing moved. Suspect the evaluation set is too small
 
 ## S08 · Atlas evaluation
 
-> `Projects/Atlas evaluation.md` · 57 words · #evaluation #project · updated 2026-01-20 · 1 in / 1 out links
+> `Projects/Atlas evaluation.md` · 57 words · #evaluation #project · updated 2026-01-20 · 1 in / 1 out links · links: S07 Retrieval log · linked from: S05 Retrieval MOC
 
 Evaluation is what keeps the retrieval work honest.
 
@@ -208,7 +208,7 @@ Every friday, a script runs the suite against the current index and appends the 
 
 ## S09 · Atlas ranking
 
-> `Projects/Atlas ranking.md` · 74 words · #project #retrieval · updated 2026-01-20 · 2 in / 1 out links
+> `Projects/Atlas ranking.md` · 74 words · #project #retrieval · updated 2026-01-20 · 2 in / 1 out links · links: S10 Atlas retrieval · linked from: S05 Retrieval MOC, S10 Atlas retrieval
 
 Ranking is the part of Atlas that decides which passages the assistant actually sees.
 
@@ -225,7 +225,7 @@ Reciprocal rank fusion of the two lists, then a cut at ten passages. The fusion 
 
 ## S10 · Atlas retrieval
 
-> `Projects/Atlas retrieval.md` · 98 words · #project #retrieval · updated 2026-01-20 · 2 in / 1 out links
+> `Projects/Atlas retrieval.md` · 98 words · #project #retrieval · updated 2026-01-20 · 2 in / 1 out links · links: S09 Atlas ranking · linked from: S05 Retrieval MOC, S09 Atlas ranking
 
 Atlas is the retrieval layer of the second brain: it indexes every note, embeds paragraphs and serves the closest passages to the assistant.
 
@@ -244,7 +244,7 @@ Does the reranker need a cross-encoder, or is a small logistic model over lexica
 
 ## S11 · BM25
 
-> `Reference/BM25.md` · 65 words · updated 2026-01-20 · 1 in / 0 out links
+> `Reference/BM25.md` · 65 words · updated 2026-01-20 · 1 in / 0 out links · linked from: S05 Retrieval MOC
 
 BM25 is a bag-of-words ranking function. It scores a document for a query by summing, over the query terms, the term frequency saturated by document length.
 
@@ -256,7 +256,7 @@ The saturation is what makes BM25 well behaved on short notes, where a word appe
 
 ## S12 · Reciprocal rank fusion
 
-> `Reference/Reciprocal rank fusion.md` · 57 words · updated 2026-01-20 · 1 in / 0 out links
+> `Reference/Reciprocal rank fusion.md` · 57 words · updated 2026-01-20 · 1 in / 0 out links · linked from: S05 Retrieval MOC
 
 Reciprocal rank fusion combines several ranked lists without any score calibration: each document scores the sum of 1 / (k + rank) over the lists it appears in, with k typically 60.
 

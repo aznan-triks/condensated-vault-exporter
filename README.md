@@ -61,6 +61,21 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
+### Notes that point at each other
+
+A bundle is more than a pile of documents: the exporter resolves every link
+inside it and writes the result into the note's own header, so a model (or a
+reader) can follow the graph without leaving the file:
+
+```markdown
+> `Projects/Atlas ranking.md` · 74 words · #project · 2 in / 1 out links · links: S10 Atlas retrieval · linked from: S05 Retrieval MOC
+```
+
+Links that leave the bundle are counted (`1 link(s) outside this bundle`)
+rather than silently dropped, the same data is exposed as `links.to` /
+`links.from` arrays in JSON and JSONL, and the export report ends with a
+"How the notes hang together" section listing hubs and orphans.
+
 ### Export a note's neighbourhood
 
 Right-click any note → **Export this note and its links** (or *…neighbourhood
