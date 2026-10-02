@@ -40,6 +40,9 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- "Export every profile" command: one sweep over all profiles, sharing the
+  analysis cache, skipping profiles whose scope has not changed, with a single
+  summary notice.
 - Per-note exports keep their companion files (sidecar manifest, index,
   instructions, report) at the root of the output folder, named after the
   profile, instead of borrowing the first note's path.

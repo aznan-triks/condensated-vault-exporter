@@ -670,3 +670,32 @@ describe("export report", () => {
 		expect(Notice.last?.message ?? "").toContain("left out");
 	});
 });
+
+describe("export every profile", () => {
+	it("runs each profile once and reports a single summary", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.confirmOverwrite = false;
+		// Two profiles only: the sweep must be cheap enough for the test suite.
+		plugin.settings.profiles = plugin.settings.profiles.slice(0, 2);
+		plugin.settings.profiles[0].id = "first";
+		plugin.settings.profiles[1].id = "second";
+		plugin.settings.profiles[0].output.folder = "Exports/First";
+		plugin.settings.profiles[1].output.folder = "Exports/Second";
+		await plugin.saveSettings();
+
+		await plugin.commands.find((c) => c.id === "export-all-profiles")!.callback?.();
+		await settle(fake, plugin);
+
+		const written = Array.from(fake.vault.files.keys());
+		expect(written.some((path) => path.startsWith("Exports/First/"))).toBe(true);
+		expect(written.some((path) => path.startsWith("Exports/Second/"))).toBe(true);
+		expect(Notice.last?.message ?? "").toContain("2 profile(s) exported");
+
+		// A second sweep finds nothing to do and says so.
+		await plugin.commands.find((c) => c.id === "export-all-profiles")!.callback?.();
+		await settle(fake, plugin);
+		expect(Notice.last?.message ?? "").toContain("2 unchanged");
+	});
+});

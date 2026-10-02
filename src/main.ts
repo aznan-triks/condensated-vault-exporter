@@ -76,6 +76,11 @@ export default class CondensatedVaultExporter extends Plugin {
 		});
 
 		this.addCommand({
+			id: "export-all-profiles",
+			name: "Export every profile",
+			callback: () => void this.exportAll(),
+		});
+		this.addCommand({
 			id: "copy-instructions",
 			name: "Copy the custom instructions for the active profile",
 			callback: () => void this.copyInstructions(),
@@ -284,6 +289,39 @@ export default class CondensatedVaultExporter extends Plugin {
 		};
 
 		await run();
+	}
+
+	/**
+	 * Runs every profile in turn and reports once.
+	 *
+	 * The analysis cache is shared between the runs, so the second profile
+	 * onwards only pays for its own condensation and packaging — which is what
+	 * makes "refresh everything" cheap enough to be a single command.
+	 */
+	private async exportAll(): Promise<void> {
+		const profiles = this.settings.profiles;
+		if (profiles.length === 0) {
+			new Notice("No export profile configured.");
+			return;
+		}
+		const started = Date.now();
+		let exported = 0;
+		let skipped = 0;
+		let failed = 0;
+		for (const profile of profiles) {
+			const outcome = await this.runner.run(profile, { mode: "export", announce: false, skipUnchanged: true });
+			if (outcome.skipped) skipped++;
+			else if (outcome.ok) exported++;
+			else failed++;
+			// A cancel stops the whole sweep: the user asked to stop exporting.
+			if (outcome.cancelled) break;
+		}
+		const seconds = ((Date.now() - started) / 1000).toFixed(1);
+		new Notice(
+			`${exported} profile(s) exported in ${seconds}s${skipped > 0 ? `, ${skipped} unchanged` : ""}${
+				failed > 0 ? `, ${failed} failed` : ""
+			}.`,
+		);
 	}
 
 	private activeProfile(): ExportProfile | undefined {

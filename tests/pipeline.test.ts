@@ -10,10 +10,10 @@ import { BoilerplateAccumulator, stripBoilerplate, normalizeLine } from "../src/
 import { summarize } from "../src/core/condense/summarize";
 import { chunkUnits, type PackUnit } from "../src/core/pack/chunk";
 import { renderBundle } from "../src/core/pack/render";
-import { normalizeProfile } from "../src/core/profiles";
+import { createDefaultProfiles, normalizeProfile } from "../src/core/profiles";
 import { allocateBudget, budgetItemsFromDocs } from "../src/core/pack/budget";
 import { checkLimits } from "../src/core/pack/limits";
-import { analyzeAll, fakeVault, makeFile, memorySink, testProfile, toSourceFile } from "./helpers";
+import { analyzeAll, fakeVault, makeFile, memorySink, testProfile, toSourceFile, type FakeFile } from "./helpers";
 import { analyzeDocument } from "../src/core/markdown/analyzer";
 import { transformDocument, extractSection, extractBlock, normalizeForCompare, shapeOf } from "../src/core/markdown/transforms";
 import { DEFAULT_TRANSFORM } from "../src/core/profiles";
@@ -1235,5 +1235,28 @@ describe("mirror sidecars", () => {
 		expect(paths.filter((path) => path.endsWith(".manifest.json"))).toEqual(["Exports/Mirror/clean-mirror.manifest.json"]);
 		expect(paths.some((path) => path === "Exports/Mirror/projects/alpha.md")).toBe(true);
 		expect(result.parts.every((part) => !part.path.includes(".manifest"))).toBe(true);
+	});
+});
+
+describe("awkward vaults", () => {
+	it("exports every built-in profile without crashing or escaping the output folder", async () => {
+		const files: FakeFile[] = [
+			makeFile("empty.md", ""),
+			makeFile("blank.md", "\n\n   \n"),
+			makeFile("crlf.md", "# CRLF note\r\n\r\nBody with CRLF endings and a [[link]].\r\n"),
+			makeFile("cjk.md", "# 检索笔记\n\n这是一个关于向量检索的笔记，包含中文文本和 emoji 🎯。\n\n- 项目一\n- 项目二\n"),
+			makeFile("huge-line.md", `# Huge line\n\n${"word ".repeat(5_000)}`),
+			makeFile("weird name (v2) [draft]!.md", "# Weird\n\nContent of the weirdly named note, long enough for the filters to keep it.\n"),
+			makeFile("a/../escape.md", "# Escape\n\nParent references in a path must not write outside the folder, with enough words to pass the filters.\n"),
+		];
+		for (const profile of createDefaultProfiles()) {
+			const sink = memorySink();
+			const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+			expect(result.parts.length, profile.id).toBeGreaterThan(0);
+			for (const path of sink.written.keys()) {
+				expect(path.includes(".."), `${profile.id}: ${path}`).toBe(false);
+				expect(path.startsWith("Exports/"), `${profile.id}: ${path}`).toBe(true);
+			}
+		}
 	});
 });

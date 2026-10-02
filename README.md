@@ -57,6 +57,7 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 - **`Ctrl-P` → “Export with the active profile”** — one keystroke, straight to the output folder.
 - **Right-click a folder** → *Export as an AI-ready bundle…* — the folder is pre-filled.
 - **`Ctrl-P` → “Copy the bundle to the clipboard”** — paste straight into a chat.
+- **`Ctrl-P` → “Export every profile”** — one sweep over all profiles, with the analysis cache shared between them and profiles whose scope has not changed skipped. A second notice summarises what happened.
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
@@ -83,9 +84,10 @@ Everything editable in the settings tab: folders and globs, tag/date/word filter
    - *Duplicates*: MinHash + LSH banding finds candidates; short notes are compared exactly. A note that is an **extract** of a longer one is caught by a containment estimate and an inverted index over shingle hashes, not only by similarity.
    - *Boilerplate*: a line is removed when its digit-free template repeats across at least *N* notes, or when it repeats verbatim. Lines whose digits carry meaning (`Score: 47`) survive.
    - *Stubs* and *empty notes* are dropped with a reason.
-4. **Rank and budget** — the requested order is the priority; the token budget drops by value (centrality, signal, recency) and can summarise before dropping.
-5. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
-6. **Write** — parts, a `.manifest.json` with per-note hashes, and a `.index.md` when there are several parts. Incremental runs only include what changed.
+4. **Clean and measure** — the surviving notes are read and transformed *before* the budget is decided, so it works from the size the file will really have.
+5. **Rank and budget** — the requested order is the priority; the token budget drops by value (centrality, signal, recency) and can summarise before dropping. Every included note is charged for its framing (heading, source line, citation, manifest entry, contents line), which is why a profile either fills its budget or says why it could not.
+6. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
+7. **Write** — parts, a `.manifest.json` with per-note hashes, an `.index.md` when there are several parts, and — when the profile asks for them — the `.instructions.md` prompt and the `.report.md` audit trail. Incremental runs only include what changed.
 
 ### The instructions file
 
