@@ -107,8 +107,18 @@ export async function transformDocument(
 	let text = body;
 	if (context.boilerplate && (context.boilerplate.hashes.size > 0 || (context.boilerplate.exactHashes?.size ?? 0) > 0)) {
 		const stripped = stripBoilerplate(text, context.boilerplate.hashes, context.boilerplate.options, context.boilerplate.exactHashes);
-		text = stripped.text;
-		stats.boilerplateLines = stripped.removedLines;
+		// A line shared by every note is a template only if the note has
+		// something else to say. When stripping would take the prose away and
+		// leave headings behind, the line *is* the note — a corpus of copies,
+		// not a corpus of templates — so it stays.
+		const proseBefore = countWords(stripInlineMarkup(text));
+		const proseAfter = countWords(stripInlineMarkup(stripped.text));
+		if (stripped.removedLines > 0 && proseBefore >= 10 && proseAfter < Math.max(1, proseBefore * 0.15)) {
+			stats.boilerplateLines = 0;
+		} else {
+			text = stripped.text;
+			stats.boilerplateLines = stripped.removedLines;
+		}
 	}
 
 	// -- 3. multi-line noise --------------------------------------------------

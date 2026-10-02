@@ -84,6 +84,10 @@ function bullet(path: string, suffix = ""): string {
 	return `- \`${path}\`${suffix}`;
 }
 
+function capitalize(text: string): string {
+	return text.length > 0 ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
 function capped<T>(items: T[], render: (item: T) => string): string[] {
 	const lines = items.slice(0, MAX_LISTED).map(render);
 	if (items.length > MAX_LISTED) lines.push(`- …and ${formatCount(items.length - MAX_LISTED)} more`);
@@ -178,7 +182,16 @@ export function buildExportReport(input: ExportReportInput): string {
 		if (input.duplicates.length > MAX_LISTED) {
 			lines.push(`- …and ${formatCount(input.duplicates.length - MAX_LISTED)} more duplicate group(s)`);
 		}
-		lines.push(...capped(leftOut, (entry) => bullet(entry.path, entry.reason !== "" ? ` — ${entry.reason}` : "")));
+		lines.push(
+			...capped(leftOut, (entry) =>
+				// Aggregate rows (stubs, unreadable files, filter hits) have no
+				// path of their own: printing an empty code span looked like a
+				// bug in the report itself.
+				entry.path === ""
+					? `- ${capitalize(entry.reason)}`
+					: bullet(entry.path, entry.reason !== "" ? ` — ${entry.reason}` : ""),
+			),
+		);
 		if (stats.kept === 0) {
 			lines.push("", "> Nothing was kept: check the profile's folder, tag and date filters.");
 		}

@@ -1,6 +1,6 @@
 # Export report — Chat context
 
-Profile **Chat context** · generated 2026-01-20 12:00 · 9 ms
+Profile **Chat context** · generated 2026-01-20 12:00 · 11 ms
 
 ## What was exported
 

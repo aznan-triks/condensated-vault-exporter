@@ -355,6 +355,33 @@ describe("packaging", () => {
 		expect(result.warnings.some((w) => w.includes("without corrupting it"))).toBe(false);
 	});
 
+	it("does not strip the only sentence a note has, even when every note shares it", async () => {
+		const body =
+			"Retrieval ranking compares candidate passages with graded judgements, and the evaluation set has to stay fixed across runs for the numbers to mean anything at all.";
+		const files = Array.from({ length: 5 }, (_, index) => makeFile(`copies/copy-${index}.md`, `# Copy ${index}\n\n${body}\n`));
+		const result = await runExport({ profile: testProfile() }, { vault: fakeVault(files), sink: memorySink() });
+		const bundle = result.parts.map((part) => part.content).join("\n");
+		// Five notes, five copies of their sentence: a shared sentence is not a
+		// template, and dropping it would leave five headings and no content.
+		expect(bundle.match(/Retrieval ranking compares candidate passages/g)?.length).toBe(5);
+		expect(result.stats.boilerplateLines).toBe(0);
+	});
+
+	it("does not print an empty path in the report's 'left out' section", async () => {
+		const files = [
+			makeFile("notes/real.md", note("Real", "A real note with enough words to be kept in the bundle without any trouble at all.")),
+			makeFile("notes/stub.md", note("Stub", "-")),
+			makeFile("notes/tiny.md", note("Tiny", "short text")),
+		];
+		const profile = testProfile({ packaging: { ...testProfile().packaging, reportFile: true } });
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		const report = result.report ?? "";
+		expect(report).toContain("## What was left out");
+		expect(report).not.toContain("- ``");
+		// Aggregate rows say how many notes, not which one.
+		expect(report).toMatch(/^- \d+ notes? excluded by the profile/m);
+	});
+
 	it("never leaves an XML document unclosed", async () => {
 		const long = Array.from({ length: 200 }, (_, i) => `## Section ${i}\n\nParagraph ${i} explains the ranking pipeline with enough words to matter here.`).join("\n\n");
 		const files = [
