@@ -330,7 +330,7 @@ each.
 
 ### Design constraints
 
-- **Bounded memory**: the analysis of a note is a few hundred bytes (signature, shingle hashes, line identities) — never the text. A 20,000-note vault fits in a few tens of megabytes.
+- **Bounded memory**: the analysis of a note is a few hundred bytes (signature, shingle hashes, line identities) — never the text. Analysing 20,000 notes peaks around 100 MB, and a full export of that vault around 200 MB, most of it transient strings the collector reclaims.
 - **Two passes**: analysis is cached and reused; only the notes that make it into the bundle are read again for rendering.
 - **`src/core` never imports Obsidian.** Everything is testable in plain Node; `src/obsidian` is the thin adapter (vault access, sinks, dialogs, settings).
 
