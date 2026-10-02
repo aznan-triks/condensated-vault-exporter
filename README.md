@@ -104,6 +104,17 @@ Every line is derived from the bundle's own statistics: structure, tags, themes,
 hubs, duplicates, broken links and the glossary. It is capped at 10 000 characters,
 the limit of NotebookLM's instructions field.
 
+### What changed since last time
+
+Every run compares the notes it bundled with the previous export's manifest and
+reports the difference — *“3 new, 12 changed, 1 note gone, 240 unchanged”* — in
+the preview, in the completion notice, and in the sidecar manifest:
+
+```json
+"previous": { "added": 3, "changed": 12, "removed": 1, "unchanged": 240,
+              "paths": { "added": ["…"], "changed": ["…"], "removed": ["…"] } }
+```
+
 ### Keep it fresh
 
 Settings → *Keep a bundle up to date automatically* watches the vault and re-runs

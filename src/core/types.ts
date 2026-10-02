@@ -539,6 +539,22 @@ export interface ExportResult {
 	 * for them (or the caller wants to offer them).
 	 */
 	instructions?: string;
+	/** How the bundled notes differ from the previous export's manifest. */
+	delta?: ExportDelta;
+}
+
+/** Difference between this run and the previous one, note by note. */
+export interface ExportDelta {
+	/** The previous manifest was found and could be compared. */
+	known: boolean;
+	/** Paths in this bundle that the previous manifest did not contain. */
+	added: string[];
+	/** Paths whose content hash changed. */
+	changed: string[];
+	/** Paths the previous manifest contained and this bundle does not. */
+	removed: string[];
+	/** Number of notes present with an identical hash. */
+	unchanged: number;
 }
 
 export interface ProgressEvent {

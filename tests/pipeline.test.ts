@@ -895,3 +895,52 @@ describe("custom instructions", () => {
 		expect(Array.from(sink.written.keys()).some((key) => key.endsWith(".instructions.md"))).toBe(false);
 	});
 });
+
+describe("delta against the previous export", () => {
+	it("compares the bundled notes with the previous manifest", async () => {
+		const vault = buildFixtureVault();
+		const previous = {
+			hashes: {
+				"projects/alpha.md": "stale-hash",
+				"projects/beta.md": "stale-hash",
+				"dropped/old.md": "stale-hash",
+			},
+		};
+		const result = await runExport(
+			{ profile: testProfile() },
+			{ vault, sink: memorySink(), readPreviousManifest: async () => previous },
+		);
+		expect(result.delta?.known).toBe(true);
+		// alpha and beta were both re-hashed, so both read as changed.
+		expect(result.delta?.changed).toContain("projects/alpha.md");
+		expect(result.delta?.changed).toContain("projects/beta.md");
+		// A note the previous export knew and this one does not.
+		expect(result.delta?.removed).toContain("dropped/old.md");
+		expect(result.delta?.unchanged).toBe(0);
+	});
+
+	it("writes the diff into the manifest, with this run's hashes", async () => {
+		const vault = buildFixtureVault();
+		const sink = memorySink();
+		await runExport(
+			{ profile: testProfile() },
+			{
+				vault,
+				sink,
+				readPreviousManifest: async () => ({ hashes: { "projects/alpha.md": "stale-hash" } }),
+			},
+		);
+		const manifestPath = Array.from(sink.written.keys()).find((path) => path.endsWith(".manifest.json"))!;
+		const payload = JSON.parse(sink.written.get(manifestPath)!);
+		expect(payload.previous.changed).toBeGreaterThan(0);
+		expect(payload.previous.paths.changed).toContain("projects/alpha.md");
+		// The hashes describe this run, not the previous one.
+		expect(payload.hashes["projects/alpha.md"]).not.toBe("stale-hash");
+		expect(payload.hashes["projects/alpha.md"]).toMatch(/^[0-9a-f]{32}$/);
+	});
+
+	it("reports nothing when there is no previous manifest", async () => {
+		const result = await runExport({ profile: testProfile() }, { vault: buildFixtureVault(), sink: memorySink() });
+		expect(result.delta).toBeUndefined();
+	});
+});

@@ -259,6 +259,8 @@ export class PreviewModal extends Modal {
 			});
 		}
 
+		this.renderDelta(contentEl);
+
 		this.bodyEl = contentEl.createDiv({ cls: "cve-preview-body" });
 		void this.renderPart();
 
@@ -285,6 +287,32 @@ export class PreviewModal extends Modal {
 	}
 
 	private bodyEl: HTMLElement | null = null;
+
+	/** "What changed since the last export" — the question behind a re-run. */
+	private renderDelta(parent: HTMLElement): void {
+		const delta = this.result.delta;
+		if (!delta || !delta.known) return;
+		const total = delta.added.length + delta.changed.length + delta.removed.length;
+		const box = parent.createDiv({ cls: "cve-preview-delta" });
+		if (total === 0) {
+			box.setText(`Identical to the previous export (${delta.unchanged} notes unchanged).`);
+			return;
+		}
+		box.setText(
+			`Since the previous export: ${delta.added.length} new, ${delta.changed.length} changed, ${delta.removed.length} note(s) gone, ${delta.unchanged} unchanged.`,
+		);
+		const details = box.createDiv({ cls: "cve-preview-delta-details" });
+		for (const [label, paths] of [
+			["New", delta.added],
+			["Changed", delta.changed],
+			["Gone", delta.removed],
+		] as [string, string[]][]) {
+			if (paths.length === 0) continue;
+			details.createDiv({
+				text: `${label}: ${paths.slice(0, 5).join(", ")}${paths.length > 5 ? ` … +${paths.length - 5} more` : ""}`,
+			});
+		}
+	}
 
 	private renderStats(el: HTMLElement): void {
 		const stats = this.result.stats;

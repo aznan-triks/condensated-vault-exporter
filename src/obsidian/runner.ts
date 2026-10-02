@@ -245,9 +245,15 @@ export class ExportRunner {
 				? `Preview ready — ${parts} part(s), ${formatCount(result.stats.words)} words, ~${formatCount(result.stats.tokens)} tokens.`
 				: `Exported ${parts} part(s) — ${formatCount(result.stats.words)} words, ~${formatCount(result.stats.tokens)} tokens.`;
 
+		const delta = result.delta;
+		const changeLine =
+			delta && (delta.added.length > 0 || delta.changed.length > 0 || delta.removed.length > 0)
+				? `\n↻ vs previous export: ${delta.added.length} new, ${delta.changed.length} changed, ${delta.removed.length} gone.`
+				: "";
+
 		const problems = result.warnings.filter((w) => w.startsWith("❌") || w.startsWith("⚠️"));
 		const notice = new Notice(
-			problems.length > 0 ? `${head}\n⚠️ ${problems[0].replace(/^[❌⚠️]\s*/u, "")}` : head,
+		problems.length > 0 ? `${head}${changeLine}\n⚠️ ${problems[0].replace(/^[❌⚠️]\s*/u, "")}` : `${head}${changeLine}`,
 			problems.length > 0 ? 8000 : 4000,
 		);
 		notice.noticeEl.addClass("cve-notice");

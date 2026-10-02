@@ -27,6 +27,10 @@ First complete release.
   for multi-part bundles.
 - Obsidian UI: export dialog, preview modal, settings tab, ribbon icon, folder
   context menu, status bar progress, cancellation, clipboard destination.
+- Export diff: each run compares itself with the previous manifest (new,
+  changed, removed, unchanged) and the preview, the notice and the sidecar
+  report it. The sidecar now stores this run's hashes — it used to keep the
+  previous run's, which made every later comparison look two exports old.
 - Custom instructions: the NotebookLM and chat profiles emit a paste-ready
   `*.instructions.md` (corpus, citation scheme, answer rules, suggested
   questions) and a command copies it to the clipboard.

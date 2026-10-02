@@ -11,6 +11,7 @@ import {
 	ExportCancelledError,
 	type CancelSignal,
 	type DocAnalysis,
+	type ExportDelta,
 	type ExportManifest,
 	ExportProfile,
 	ExportResult,
@@ -662,7 +663,6 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				)
 			: null;
 
-	// ---------------------------------------------------------------- write
 	// Per-note content hashes: they make the sidecar a real record of what was
 	// exported (and of the exact revision of each note).
 	const bundledHashes: Record<string, string> = {};
@@ -670,6 +670,13 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		const analysis = analysisByPath.get(note.path);
 		if (analysis) bundledHashes[note.path] = analysis.hash;
 	}
+	// How does this compare to the previous export of the same profile? The
+	// previous manifest is read before anything is written (it is about to be
+	// replaced), so the diff can be reported to the user either way.
+	const previousManifest = deps.readPreviousManifest ? await deps.readPreviousManifest(profile.id).catch(() => null) : null;
+	const delta = computeExportDelta(bundledHashes, previousManifest);
+
+	// ---------------------------------------------------------------- write
 	const manifest = buildManifest(
 		profile,
 		bundle.variables.title,
@@ -708,10 +715,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		if (profile.packaging.manifestSidecar && parts.length > 0) {
 			check();
 			const manifestPath = joinOutputPath(output, names[0].replace(/\.md$|\.txt$|\.jsonl?$|\.xml$/i, "") + ".manifest.json");
-			const previous = deps.readPreviousManifest ? await deps.readPreviousManifest(profile.id) : null;
-			const manifestWithHashes: ExportManifest = { ...manifest, hashes: manifest.hashes };
-			const merged = mergeManifestPayload(previous, manifestWithHashes);
-			written.push(await deps.sink.write(manifestPath, JSON.stringify(merged, null, 2)));
+			written.push(await deps.sink.write(manifestPath, JSON.stringify(withDelta(manifest, delta), null, 2)));
 		}
 
 		if (instructionsPath !== null && instructionsText !== null) {
@@ -767,6 +771,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		},
 		parts,
 		instructions: instructionsText ?? undefined,
+		delta: previousManifest ? delta : undefined,
 		manifest: {
 			...manifest,
 			parts: parts.map((p) => ({
@@ -1442,12 +1447,50 @@ function buildManifest(
 	};
 }
 
-function mergeManifestPayload(previous: PreviousManifestLike | null, manifest: ExportManifest): unknown {
-	if (!previous) return manifest;
+/**
+ * Compares the notes in this bundle with the previous manifest's hashes.
+ *
+ * The manifest is the export's own record, so the diff has to be computed
+ * before the file is replaced — and the hashes it stores must describe *this*
+ * run, otherwise the next diff would compare against a run two exports old.
+ */
+function computeExportDelta(
+	hashes: Record<string, string>,
+	previous: PreviousManifestLike | null,
+): ExportDelta {
+	const delta: ExportDelta = { known: previous !== null, added: [], changed: [], removed: [], unchanged: 0 };
+	if (!previous) return delta;
+	for (const [path, hash] of Object.entries(hashes)) {
+		const before = previous.hashes[path];
+		if (before === undefined) delta.added.push(path);
+		else if (before !== hash) delta.changed.push(path);
+		else delta.unchanged++;
+	}
+	for (const path of Object.keys(previous.hashes)) {
+		if (!(path in hashes)) delta.removed.push(path);
+	}
+	delta.added.sort();
+	delta.changed.sort();
+	delta.removed.sort();
+	return delta;
+}
+
+/** The manifest as written to disk: this run's hashes plus the diff summary. */
+function withDelta(manifest: ExportManifest, delta: ExportDelta): unknown {
+	if (!delta.known) return manifest;
 	return {
 		...manifest,
-		hashes: previous.hashes,
-		previousManifest: { available: true, knownNotes: Object.keys(previous.hashes).length },
+		previous: {
+			added: delta.added.length,
+			changed: delta.changed.length,
+			removed: delta.removed.length,
+			unchanged: delta.unchanged,
+			paths: {
+				added: delta.added.slice(0, 50),
+				changed: delta.changed.slice(0, 50),
+				removed: delta.removed.slice(0, 50),
+			},
+		},
 	};
 }
 

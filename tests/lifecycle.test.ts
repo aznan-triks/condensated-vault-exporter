@@ -610,3 +610,23 @@ describe("custom instructions", () => {
 		modal.close();
 	});
 });
+
+describe("delta reporting", () => {
+	it("shows what changed between two real exports", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.confirmOverwrite = false;
+		// First export writes the manifest; a second one diffs against it.
+		await plugin.runner.run(plugin.settings.profiles[0], {});
+		await fake.vault.modify(
+			fake.vault.getAbstractFileByPath("notes/alpha.md")!,
+			"# Alpha project\n\nCompletely rewritten, with enough words for the filter to keep it.\n",
+		);
+		const second = await plugin.runner.run(plugin.settings.profiles[0], {});
+		expect(second.ok).toBe(true);
+		expect(second.result?.delta?.known).toBe(true);
+		expect(second.result?.delta?.changed).toContain("notes/alpha.md");
+		expect((second.result?.delta?.unchanged ?? 0)).toBeGreaterThan(0);
+	});
+});
