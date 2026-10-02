@@ -1,0 +1,21 @@
+# Build output
+main.js
+*.map
+dist/
+build/
+out/
+
+# Dependencies
+node_modules/
+
+# Test / tooling caches
+coverage/
+.vitest/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
