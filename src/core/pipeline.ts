@@ -55,6 +55,7 @@ import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/simil
 import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
 import { buildInstructions } from "./pack/instructions";
+import { buildExportReport, type ReportEntry } from "./pack/report";
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
 import { allocateBudget, scoreDocuments, type BudgetDecision } from "./pack/budget";
 import { chunkUnits, type PackUnit } from "./pack/chunk";
@@ -117,6 +118,8 @@ const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 export async function runExport(request: ExportRequest, deps: ExportDeps): Promise<ExportResult> {
 	const started = deps.now?.() ?? Date.now();
+	// Wall clock, for the report: `deps.now` is a fixed clock in tests and demos.
+	const wallStarted = Date.now();
 	const profile = request.profile;
 	const warnings: string[] = [];
 	const progress = deps.onProgress ?? (() => {});
@@ -727,6 +730,66 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const previousManifest = deps.readPreviousManifest ? await deps.readPreviousManifest(profile.id).catch(() => null) : null;
 	const delta = computeExportDelta(bundledHashes, previousManifest);
 
+	const written: string[] = [];
+	const output = { ...profile.output, ...(request.outputOverride ?? {}) };
+	// Planned once: the write phase, the sidecar, the instructions file and the
+	// report all need the same names.
+	const names = planOutputNames(
+		profile,
+		bundleTitle,
+		parts.length,
+		generatedAt,
+		volumeCount,
+		volumeSize,
+		parts.map((part) => part.sources),
+	);
+	const droppedEntries: ReportEntry[] = budget.dropped.map((path) => ({
+		path,
+		reason: "the token budget could not fit it",
+	}));
+	const reportText = buildExportReport({
+		profileName: profile.name,
+		generatedAt,
+		durationMs: Date.now() - wallStarted,
+		stats,
+		parts: parts.map((part, index) => ({
+			index,
+			// In preview nothing is written yet: the report names the file the
+			// export *would* create, which is what the dialog shows.
+			path: part.path !== "" ? part.path : joinOutputPath(output, names[index]),
+			words: part.words,
+			tokens: part.tokens,
+			sources: part.sources.length,
+			bytes: part.content.length,
+		})),
+		volumes: volumeCount,
+		limits: profile.limits,
+		violations: limitViolations,
+		dropped: droppedEntries,
+		duplicates: dedupe.groups.map((group) => ({
+			representative: group.representative,
+			duplicates: group.duplicates,
+			similarity: group.similarity,
+		})),
+		boilerplate: boilerplate.samples.map((sample) => ({ text: sample.text, docs: sample.docs })),
+		transforms: transformStats,
+		summarized: budget.summarized.length,
+		truncated: budget.truncated.length,
+		warnings,
+		delta: previousManifest ? delta : undefined,
+	});
+	const reportPath =
+		profile.packaging.reportFile && reportText !== ""
+			? joinOutputPath(
+					output,
+					sanitizeRelativePath(names[0], "bundle")
+						.replace(/-v\d+(\.[^.]+)$/, "$1")
+						.replace(/\.[^.]+$/, "") + ".report.md",
+				)
+			: null;
+
+
+
 	// ---------------------------------------------------------------- write
 	const manifest = buildManifest(
 		profile,
@@ -741,21 +804,9 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		bundledHashes,
 		started,
 	);
-	const written: string[] = [];
-	const output = { ...profile.output, ...(request.outputOverride ?? {}) };
-
 	if (request.mode !== "preview") {
 		check();
 		progress({ phase: "write", progress: 0.9, message: "Writing the bundle…" });
-		const names = planOutputNames(
-			profile,
-			bundleTitle,
-			parts.length,
-			generatedAt,
-			volumeCount,
-			volumeSize,
-			parts.map((part) => part.sources),
-		);
 		const targets = names.map((name) => joinOutputPath(output, name));
 		if (deps.beforeWrite && !(await deps.beforeWrite(targets))) {
 			throw new ExportAbortedError("The export was aborted before writing any file.");
@@ -783,6 +834,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		if (instructionsPath !== null && instructionsText !== null) {
 			check();
 			written.push(await deps.sink.write(instructionsPath, instructionsText));
+		}
+
+		if (reportPath !== null) {
+			check();
+			written.push(await deps.sink.write(reportPath, reportText));
 		}
 
 		if (parts.length > 1 && profile.output.destination === "vault") {
@@ -833,6 +889,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		},
 		parts,
 		instructions: instructionsText ?? undefined,
+		report: reportText,
 		delta: previousManifest ? delta : undefined,
 		manifest: {
 			...manifest,

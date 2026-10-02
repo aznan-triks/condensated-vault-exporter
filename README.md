@@ -136,6 +136,22 @@ exporting a fraction of the vault. Contents lists are capped at
 `tocMaxEntries` lines; beyond that a single "…and N more notes" line points at
 the manifest.
 
+### The export report
+
+Every run can say what it did with the vault, not just what came out. With
+"Write an export report" on (on by default for the NotebookLM and chat-context
+profiles), a `<bundle>.report.md` lands next to the bundle:
+
+- what was exported, part by part, with words and tokens;
+- what was left out — duplicates (with similarity), stubs, unreadable notes,
+  the notes the token budget could not fit — and why;
+- what was cleaned up — boilerplate lines (with the most frequent examples),
+  transclusions, images referenced rather than embedded, summaries, truncations;
+- how the result compares to the destination's limits.
+
+The preview dialog can copy it without writing a file, and the completion
+notice points at it whenever notes were left behind.
+
 ### One file per note
 
 The **Clean mirror** profile writes one processed file per note, named after the

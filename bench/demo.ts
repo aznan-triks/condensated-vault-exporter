@@ -5,8 +5,8 @@
  * reference notes) run through the real engine, so the committed example is
  * always exactly what the plugin would produce.
  */
-import { runExport } from "/home/user/condensated-vault-exporter/src/core/pipeline.ts";
-import { createDefaultProfiles } from "/home/user/condensated-vault-exporter/src/core/profiles.ts";
+import { runExport } from "../src/core/pipeline.ts";
+import { createDefaultProfiles } from "../src/core/profiles.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -178,12 +178,16 @@ for (const id of Object.keys(targets)) {
 			now: () => Date.parse("2026-01-20T12:00:00Z"),
 			sink: {
 				async write(path, content) {
-					// The sidecar manifest goes next to the bundle, not into it.
-					const file = path.endsWith(".instructions.md")
-						? targets[id].replace(/\.md$/, ".instructions.md")
+					// The sidecars go next to the bundle, not into it: whatever
+					// suffix the pipeline chose, the documented names stay stable.
+					const suffix = path.endsWith(".instructions.md")
+						? ".instructions.md"
 						: path.endsWith(".manifest.json")
-						? targets[id].replace(/\.md$/, ".manifest.json")
-						: targets[id];
+						? ".manifest.json"
+						: path.endsWith(".report.md")
+						? ".report.md"
+						: "";
+					const file = suffix === "" ? targets[id] : targets[id].replace(/\.md$/, suffix);
 					mkdirSync(dirname(file), { recursive: true });
 					writeFileSync(file, content);
 					return path;

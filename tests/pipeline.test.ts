@@ -1177,3 +1177,51 @@ describe("boilerplate headings", () => {
 		expect(emptied.text).not.toContain("## Gratitude");
 	});
 });
+
+describe("export report", () => {
+	it("always reports what happened, and says why notes were left out", async () => {
+		const files = [
+			...Array.from({ length: 6 }, (_, i) =>
+				makeFile(
+					`d${i}.md`,
+					`# Day ${i}\n\n## Gratitude\n- coffee\n- the quiet morning\n\n## Log\nUnique content for day ${i} that is long enough to survive the filters.\n`,
+				),
+			),
+		];
+		const profile = testProfile({
+			filters: { ...testProfile().filters, maxNotes: 4 },
+		} as never);
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		const report = result.report ?? "";
+		expect(report).toContain("# Export report");
+		expect(report).toContain("## What was exported");
+		expect(report).toContain("## What was left out");
+		expect(report).toContain("excluded by the profile's filters or note cap");
+		expect(report).toContain("## What was cleaned up");
+		expect(report).toContain("boilerplate");
+		expect(report).toContain("## Destination checks");
+	});
+
+	it("writes the report next to the bundle when the profile asks for it", async () => {
+		const files = Array.from({ length: 3 }, (_, i) => makeFile(`n${i}.md`, `# Note ${i}\n\n${"Body text ".repeat(20)}`));
+		const profile = testProfile({ packaging: { reportFile: true } });
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		const reportPath = [...sink.written.keys()].find((path) => path.endsWith(".report.md"));
+		expect(reportPath).toBeDefined();
+		expect(sink.written.get(reportPath!)).toContain("# Export report");
+		expect(result.written).toContain(reportPath);
+	});
+
+	it("names the duplicate groups it skipped", async () => {
+		const shared = Array.from(
+			{ length: 30 },
+			(_, i) => `Paragraph ${i} explains how the retrieval pipeline stores documents, ranks candidates and returns passages.`,
+		).join(" ");
+		const files = [makeFile("copy-a.md", `# Copy A\n\n${shared}`), makeFile("copy-b.md", `# Copy B\n\n${shared}`)];
+		const result = await runExport({ profile: testProfile() }, { vault: fakeVault(files), sink: memorySink() });
+		const report = result.report ?? "";
+		expect(report).toContain("Duplicate of");
+		expect(report).toContain("copy-b.md");
+	});
+});

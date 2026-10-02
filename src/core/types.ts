@@ -356,6 +356,12 @@ export interface PackagingOptions {
 	 * written instead (the manifest always lists everything).
 	 */
 	tocMaxEntries: number;
+	/**
+	 * Write `<bundle>.report.md` next to the bundle: what was kept, what was
+	 * left out and why, what was cleaned up, and how the result compares to the
+	 * destination's limits. The audit trail for a lossy export.
+	 */
+	reportFile: boolean;
 	/** Prefix the bundle with a generated map of the corpus. */
 	includeKnowledgeMap: boolean;
 	/** Append a glossary harvested from definition-style lines. */
@@ -555,6 +561,8 @@ export interface ExportResult {
 	 * for them (or the caller wants to offer them).
 	 */
 	instructions?: string;
+	/** Human-readable account of what the export did (see `pack/report.ts`). */
+	report?: string;
 	/** How the bundled notes differ from the previous export's manifest. */
 	delta?: ExportDelta;
 }

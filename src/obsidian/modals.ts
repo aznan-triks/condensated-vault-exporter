@@ -277,6 +277,13 @@ export class PreviewModal extends Modal {
 				void this.copyText(this.result.instructions ?? "", "Instructions copied — paste them into the notebook's instructions field.");
 			};
 		}
+		if (this.result.report) {
+			const report = buttons.createEl("button", { text: "Copy export report" });
+			report.setAttribute("aria-label", "Copy what was kept, left out and cleaned up, with the reasons");
+			report.onclick = () => {
+				void this.copyText(this.result.report ?? "", "Export report copied — it lists what was left out and why.");
+			};
+		}
 		const exportButton = buttons.createEl("button", { text: "Export now", cls: "mod-cta" });
 		exportButton.onclick = () => {
 			this.close();

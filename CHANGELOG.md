@@ -40,6 +40,12 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Export report: every run produces a human-readable account of what it did —
+  what was kept, what was left out and why, what was cleaned up, and how the
+  result compares to the destination's limits. Written as `<bundle>.report.md`
+  when the profile asks for it (on for NotebookLM and chat-context), always
+  available from the preview dialog, and pointed at from the notice when notes
+  were left behind.
 - Speed: a 5 000-note vault exports ~2× faster than before this batch.
   Shingle signatures are built from word hashes instead of joined strings,
   token estimation compares code points instead of running a regex per

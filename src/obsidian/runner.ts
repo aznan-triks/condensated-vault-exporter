@@ -251,9 +251,19 @@ export class ExportRunner {
 				? `\n↻ vs previous export: ${delta.added.length} new, ${delta.changed.length} changed, ${delta.removed.length} gone.`
 				: "";
 
+		// When notes were left behind, the report is the most useful thing to
+		// point at: it says which ones and why.
+		const leftOut = Math.max(0, result.stats.discovered - result.stats.kept);
+		const reportPath = result.written.find((path) => path.endsWith(".report.md"));
+		const reportLine =
+			options.mode !== "preview" && reportPath && leftOut > 0
+				? `\n📋 ${leftOut} note(s) were left out — see ${reportPath.split("/").pop()}`
+				: "";
+
 		const problems = result.warnings.filter((w) => w.startsWith("❌") || w.startsWith("⚠️"));
 		const notice = new Notice(
-		problems.length > 0 ? `${head}${changeLine}\n⚠️ ${problems[0].replace(/^[❌⚠️]\s*/u, "")}` : `${head}${changeLine}`,
+		problems.length > 0 ? `${head}${changeLine}${reportLine}\n⚠️ ${problems[0].replace(/^[❌⚠️]\s*/u, "")}`
+				: `${head}${changeLine}${reportLine}`,
 			problems.length > 0 ? 8000 : 4000,
 		);
 		notice.noticeEl.addClass("cve-notice");

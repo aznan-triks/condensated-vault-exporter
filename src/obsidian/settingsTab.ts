@@ -634,6 +634,16 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Write an export report")
+			.setDesc("A <bundle>.report.md next to the bundle: what was kept, left out and cleaned up, and why.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.reportFile).onChange(async (value) => {
+					profile.packaging.reportFile = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Write custom instructions")
 			.setDesc("A paste-ready prompt for the destination model: what the corpus is, how to cite it, what it can answer.")
 			.addToggle((toggle) =>

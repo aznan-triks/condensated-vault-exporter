@@ -107,6 +107,7 @@ export const DEFAULT_PACKAGING: PackagingOptions = {
 	includeToc: true,
 	tocMaxDepth: 3,
 	tocMaxEntries: 300,
+	reportFile: false,
 	includeKnowledgeMap: true,
 	includeGlossary: true,
 	citationIds: true,
@@ -198,6 +199,7 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 					// A notebook is told what it is looking at: the instructions
 					// file is paste-ready in the destination's own field.
 					instructionsFile: true,
+					reportFile: true,
 				},
 				limits: { ...LIMIT_PRESETS[1].limits },
 				output: { ...DEFAULT_OUTPUT, folder: "Exports/NotebookLM" },
@@ -228,6 +230,7 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 					includeKnowledgeMap: true,
 					includeGlossary: false,
 					instructionsFile: true,
+					reportFile: true,
 				},
 				limits: { ...LIMIT_PRESETS[3].limits },
 				output: { ...DEFAULT_OUTPUT, folder: "Exports/Chat", alsoCopyToClipboard: true },

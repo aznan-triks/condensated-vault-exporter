@@ -649,3 +649,24 @@ describe("nested output folders", () => {
 		expect(fake.vault.folders.has("Exports/Mirror/daily")).toBe(true);
 	});
 });
+
+describe("export report", () => {
+	it("points at the report when notes were left out", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const profile = plugin.settings.profiles[0];
+		profile.packaging.reportFile = true;
+		profile.filters.maxNotes = 2;
+		await plugin.saveSettings();
+
+		await plugin.commands.find((c) => c.id === "export-active-profile")!.callback?.();
+		await settle(fake, plugin);
+
+		const written = Array.from(fake.vault.files.keys());
+		const report = written.find((path) => path.endsWith(".report.md"));
+		expect(report).toBeDefined();
+		expect(fake.vault.files.get(report!)!.content).toContain("What was left out");
+		expect(Notice.last?.message ?? "").toContain("left out");
+	});
+});
