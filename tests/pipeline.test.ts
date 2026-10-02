@@ -1260,3 +1260,37 @@ describe("awkward vaults", () => {
 		}
 	});
 });
+
+describe("neighbourhood exports", () => {
+	it("keeps only the notes reachable from the root", async () => {
+		const files = [
+			makeFile("moc.md", "# MOC\n\nA map of content for the retrieval work, with enough words to pass the filters.\n\n- [[alpha]]\n- [[beta]]\n"),
+			makeFile("alpha.md", "# Alpha\n\nAlpha explains the ranking pipeline in detail and links to [[gamma]] for the evaluation side.\n"),
+			makeFile("beta.md", "# Beta\n\nNothing much, but long enough to be kept by the word filter.\n"),
+			makeFile("gamma.md", "# Gamma\n\nA note two hops away from the map of content, with words.\n"),
+			makeFile("orphan.md", "# Orphan\n\nNot reachable at all from the map, and never linked by anyone.\n"),
+		];
+		const profile = testProfile({
+			filters: { ...testProfile().filters, neighbourhood: { root: "moc.md", hops: 1 } },
+		} as never);
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		const sources = result.parts.flatMap((part) => part.sources);
+		expect(sources).toEqual(expect.arrayContaining(["moc.md", "alpha.md", "beta.md"]));
+		expect(sources).not.toContain("gamma.md");
+		expect(sources).not.toContain("orphan.md");
+		expect(result.warnings.join(" ")).toContain("Scoped to the 1-hop neighbourhood of moc.md");
+	});
+
+	it("warns instead of exporting everything when the root is out of scope", async () => {
+		const files = [makeFile("a.md", "# A\n\nBody text long enough to pass the filters and be exported normally.\n")];
+		const profile = testProfile({
+			filters: { ...testProfile().filters, neighbourhood: { root: "missing.md", hops: 1 } },
+		} as never);
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		// The scope failed, so the export falls back to the whole selection — and
+		// says so, rather than silently exporting the wrong thing.
+		expect(result.warnings.join(" ")).toContain("not in scope");
+		expect(result.stats.kept).toBe(1);
+	});
+});

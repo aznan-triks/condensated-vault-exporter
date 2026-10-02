@@ -369,6 +369,29 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Focus on a note's neighbourhood")
+			.setDesc("Vault path of a note; leave empty to export the whole selection. Also available by right-clicking a note.")
+			.addText((text) =>
+				text.setValue(profile.filters.neighbourhood?.root ?? "").onChange(async (value) => {
+					const root = value.trim();
+					profile.filters.neighbourhood = root === "" ? null : { root, hops: profile.filters.neighbourhood?.hops ?? 1 };
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Neighbourhood hops")
+			.setDesc("How many link hops around that note are included (0 = the note only).")
+			.addText((text) =>
+				text.setValue(String(profile.filters.neighbourhood?.hops ?? 1)).onChange(async (value) => {
+					const parsed = Number.parseInt(value, 10);
+					if (!Number.isFinite(parsed) || parsed < 0) return;
+					if (profile.filters.neighbourhood) profile.filters.neighbourhood.hops = Math.min(6, parsed);
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Maximum file size (MB)")
 			.setDesc("Notes larger than this are skipped (0 = no limit).")
 			.addText((text) =>

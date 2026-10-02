@@ -173,6 +173,13 @@ export interface DocAnalysis {
 /*  Options                                                                    */
 /* -------------------------------------------------------------------------- */
 
+export interface NeighbourhoodFilter {
+	/** Vault path of the note at the centre. */
+	root: string;
+	/** Link hops included (0 = the root only). */
+	hops: number;
+}
+
 export interface FilterOptions {
 	/** Keep notes carrying all of these tags. */
 	tagsAll: string[];
@@ -202,6 +209,11 @@ export interface FilterOptions {
 	/** Hard cap on the number of notes kept, applied after ordering. */
 	maxNotes: number | null;
 	skipEmpty: boolean;
+	/**
+	 * Restrict the export to the link neighbourhood of one note ("this note and
+	 * everything it connects to"). `null` exports the whole selection.
+	 */
+	neighbourhood: NeighbourhoodFilter | null;
 }
 
 export type OrderBy =

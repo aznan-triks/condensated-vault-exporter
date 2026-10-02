@@ -40,6 +40,11 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Neighbourhood exports: right-click a note to export it together with
+  everything it links to and everything that links back, 1 or 2 hops out. The
+  link map is built before the analysis pass, so a small neighbourhood export
+  stays cheap on a large vault. Also a profile setting
+  (`filters.neighbourhood`).
 - "Export every profile" command: one sweep over all profiles, sharing the
   analysis cache, skipping profiles whose scope has not changed, with a single
   summary notice.

@@ -6,8 +6,9 @@
  * `src/core`, which knows nothing about Obsidian.
  */
 
-import { Notice, Plugin, TFolder } from "obsidian";
+import { Notice, Plugin, TFile, TFolder } from "obsidian";
 import type { ExportProfile } from "./core/types";
+import { basename } from "./core/util";
 import { normalizeSettings, compactSettings, type PluginSettings } from "./obsidian/settings";
 import { ExportSettingsTab } from "./obsidian/settingsTab";
 import { ExportRunner } from "./obsidian/runner";
@@ -91,11 +92,26 @@ export default class CondensatedVaultExporter extends Plugin {
 		// Folder context menu: export right where you are.
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file) => {
-				if (!(file instanceof TFolder)) return;
+				if (file instanceof TFolder) {
+					menu.addItem((item) => {
+						item.setTitle("Export as an AI-ready bundle…")
+							.setIcon("package-plus")
+							.onClick(() => this.openDialog(file.path));
+					});
+					return;
+				}
+				// A note: export it *and what it connects to*, which is how people
+				// actually want to hand a topic to a model.
+				if (!(file instanceof TFile) || (file.extension !== "md" && file.extension !== "markdown")) return;
 				menu.addItem((item) => {
-					item.setTitle("Export as an AI-ready bundle…")
-						.setIcon("package-plus")
-						.onClick(() => this.openDialog(file.path));
+					item.setTitle("Export this note and its links")
+						.setIcon("network")
+						.onClick(() => void this.exportNeighbourhood(file.path, 1));
+				});
+				menu.addItem((item) => {
+					item.setTitle("Export this note's neighbourhood (2 hops)")
+						.setIcon("network")
+						.onClick(() => void this.exportNeighbourhood(file.path, 2));
 				});
 			}),
 		);
@@ -289,6 +305,27 @@ export default class CondensatedVaultExporter extends Plugin {
 		};
 
 		await run();
+	}
+
+	/**
+	 * Exports the notes reachable from `path` within `hops` links, using the
+	 * active profile for everything else (filters, condensation, packaging).
+	 * The folder scope is dropped: the point is to follow the links, wherever
+	 * they live in the vault.
+	 */
+	private async exportNeighbourhood(path: string, hops: number): Promise<void> {
+		const profile = this.activeProfile();
+		if (!profile) {
+			new Notice("No export profile configured.");
+			return;
+		}
+		const scoped: ExportProfile = {
+			...profile,
+			targets: [],
+			filters: { ...profile.filters, neighbourhood: { root: path, hops } },
+		};
+		new Notice(`Exporting ${basename(path)} + ${hops} hop(s)…`, 2000);
+		await this.execute(scoped, "export");
 	}
 
 	/**

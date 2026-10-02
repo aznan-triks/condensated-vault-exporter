@@ -12,6 +12,7 @@ import {
 	DropdownComponent,
 	Notice,
 	Setting,
+	TFile,
 	TextComponent,
 	TFolder,
 	ToggleComponent,
@@ -697,5 +698,33 @@ describe("export every profile", () => {
 		await plugin.commands.find((c) => c.id === "export-all-profiles")!.callback?.();
 		await settle(fake, plugin);
 		expect(Notice.last?.message ?? "").toContain("2 unchanged");
+	});
+});
+
+describe("neighbourhood export", () => {
+	it("exports a note and its links from the file menu", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.confirmOverwrite = false;
+		plugin.settings.openAfterExport = false;
+		plugin.settings.profiles[0].output.openAfterExport = false;
+		await plugin.saveSettings();
+
+		const menu = { items: [] as { title: string; click: () => unknown }[] };
+		fake.emitFileMenu(new TFile("notes/alpha.md"), menu);
+		expect(menu.items.map((item) => item.title)).toEqual([
+			"Export this note and its links",
+			"Export this note's neighbourhood (2 hops)",
+		]);
+		await menu.items[0].click();
+		await settle(fake, plugin);
+
+		const bundle = Array.from(fake.vault.files.keys()).find((path) => path.startsWith("Exports/") && path.endsWith(".md"))!;
+		const content = fake.vault.files.get(bundle)!.content;
+		// Alpha links to beta, so both are in — and nothing else is.
+		expect(content).toContain("Alpha project");
+		expect(content).toContain("Beta project");
+		expect(content).not.toContain("Gratitude");
 	});
 });

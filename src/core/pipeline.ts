@@ -54,6 +54,7 @@ import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
 import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
+import { neighbourhoodScope, type Neighbourhood } from "./scope";
 import { buildInstructions } from "./pack/instructions";
 import { buildExportReport, type ReportEntry } from "./pack/report";
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
@@ -137,13 +138,31 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	// Built once: resolving a link by name must not scan the whole vault.
 	const nameIndex = buildNameIndex(pathIndex.values());
 
-	const selection = selectCandidates(
+	let selection = selectCandidates(
 		allFiles,
 		profile,
 		deps.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
 		profile.filters.respectObsidianIgnore ? (deps.excludePatterns ?? []) : [],
 	);
 	warnings.push(...selection.warnings);
+
+	// Neighbourhood scope: "this note and what it connects to". The link map is
+	// read before the analysis pass so a ten-note neighbourhood does not pay for
+	// analysing the whole vault.
+	const neighbourhood: Neighbourhood | null = profile.filters.neighbourhood;
+	if (neighbourhood && neighbourhood.root !== "") {
+		progress({ phase: "discover", progress: 0.02, message: "Following links…" });
+		check();
+		const scope = await neighbourhoodScope(deps.vault, selection.files, neighbourhood);
+		warnings.push(...scope.warnings);
+		if (scope.paths !== null) {
+			const kept = selection.files.filter((file) => scope.paths!.has(file.path));
+			warnings.push(
+				`🎯 Scoped to the ${neighbourhood.hops}-hop neighbourhood of ${neighbourhood.root}: ${kept.length} of ${selection.files.length} note(s) in scope.`,
+			);
+			selection = { ...selection, files: kept };
+		}
+	}
 	const discovered = selection.files.length;
 
 	// ---------------------------------------------------------------- analyze

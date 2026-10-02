@@ -61,6 +61,18 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
+### Export a note's neighbourhood
+
+Right-click any note → **Export this note and its links** (or *…neighbourhood
+(2 hops)*): the export follows outgoing links *and* backlinks from that note,
+wherever they live in the vault, and runs the active profile over the result.
+It is the "take this MOC and everything it touches" workflow, and because the
+scope is settled before the analysis pass, exporting ten notes out of a
+five-thousand-note vault does not analyse the whole vault.
+
+The scope is also a profile setting (`filters.neighbourhood`: a root note plus
+a hop count), so a "topic bundle" profile can be saved and re-run.
+
 ## Profiles
 
 A profile is a complete recipe — sources, filters, condensation, packaging, output and destination limits — not a pile of unrelated toggles. Built-ins are tunable; duplicate one to make it yours.

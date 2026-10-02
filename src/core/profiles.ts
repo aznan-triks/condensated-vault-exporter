@@ -66,6 +66,7 @@ export const DEFAULT_FILTERS: FilterOptions = {
 	maxFileMegabytes: 8,
 	includeTextFiles: false,
 	maxNotes: null,
+	neighbourhood: null,
 	skipEmpty: true,
 };
 
