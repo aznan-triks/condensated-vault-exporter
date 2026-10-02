@@ -265,6 +265,16 @@ export class PreviewModal extends Modal {
 		const buttons = contentEl.createDiv({ cls: "cve-dialog-buttons" });
 		this.copyButton = buttons.createEl("button", { text: "Copy to clipboard" });
 		this.copyButton.onclick = () => void this.copy();
+		if (this.result.instructions) {
+			const instructions = buttons.createEl("button", { text: "Copy custom instructions" });
+			instructions.setAttribute(
+				"aria-label",
+				"Copy the paste-ready instructions for the destination model",
+			);
+			instructions.onclick = () => {
+				void this.copyText(this.result.instructions ?? "", "Instructions copied — paste them into the notebook's instructions field.");
+			};
+		}
 		const exportButton = buttons.createEl("button", { text: "Export now", cls: "mod-cta" });
 		exportButton.onclick = () => {
 			this.close();
@@ -341,6 +351,21 @@ export class PreviewModal extends Modal {
 			const pre = this.bodyEl.createEl("pre", { cls: "cve-preview-raw" });
 			pre.setText(part.content.slice(0, 200_000));
 		}
+	}
+
+	/** Copies arbitrary text, with the same feedback path as the bundle copy. */
+	async copyText(text: string, message: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			const el = document.createElement("textarea");
+			el.value = text;
+			document.body.appendChild(el);
+			el.select();
+			document.execCommand("copy");
+			el.remove();
+		}
+		new Notice(message);
 	}
 
 	private async copy(): Promise<void> {

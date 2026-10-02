@@ -862,3 +862,36 @@ describe("options that used to be cosmetic", () => {
 		expect(referenced.parts[0].content).toContain("[[notes/included]]");
 	});
 });
+
+describe("custom instructions", () => {
+	it("writes a paste-ready instructions file next to the bundle", async () => {
+		const profile = testProfile({
+			packaging: { ...testProfile().packaging, instructionsFile: true } as never,
+		});
+		const sink = memorySink();
+		void profile;
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		const path = Array.from(sink.written.keys()).find((key) => key.endsWith(".instructions.md"));
+		expect(path).toBeDefined();
+		const text = sink.written.get(path!)!;
+		expect(text).toContain("# Instructions for");
+		expect(text).toContain("## How the bundle is organised");
+		expect(text).toContain("## How to answer");
+		expect(text).toContain("Cite the ids");
+		expect(text).toContain("Useful questions to start with");
+		// The instructions are part of the run's outputs.
+		expect(result.written).toContain(path);
+		// They stay inside the destination's field limit.
+		expect(text.length).toBeLessThanOrEqual(10_000);
+	});
+
+	it("does not write instructions unless asked", async () => {
+		const sink = memorySink();
+		// The NotebookLM preset ships them on; every other profile defaults off.
+		const profile = testProfile({
+			packaging: { ...testProfile().packaging, instructionsFile: false } as never,
+		});
+		await runExport({ profile }, { vault: buildFixtureVault(), sink });
+		expect(Array.from(sink.written.keys()).some((key) => key.endsWith(".instructions.md"))).toBe(false);
+	});
+});

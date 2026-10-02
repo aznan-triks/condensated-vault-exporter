@@ -364,6 +364,12 @@ export interface PackagingOptions {
 	includeManifest: boolean;
 	manifestEmbedded: boolean;
 	manifestSidecar: boolean;
+	/**
+	 * Write a paste-ready "custom instructions" file next to the bundle: what
+	 * the corpus is, how to cite it, and what it can be asked. Destinations
+	 * such as NotebookLM have a dedicated instructions field for exactly this.
+	 */
+	instructionsFile: boolean;
 	lineEnding: "lf" | "crlf";
 }
 
@@ -528,6 +534,11 @@ export interface ExportResult {
 	written: string[];
 	/** How the part limit was spent — shown in the preview and diagnostics. */
 	chunking: ChunkDiagnostics;
+	/**
+	 * Paste-ready instructions for the destination model, when the profile asks
+	 * for them (or the caller wants to offer them).
+	 */
+	instructions?: string;
 }
 
 export interface ProgressEvent {

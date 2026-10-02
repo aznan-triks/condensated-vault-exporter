@@ -75,6 +75,12 @@ export default class CondensatedVaultExporter extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: "copy-instructions",
+			name: "Copy the custom instructions for the active profile",
+			callback: () => void this.copyInstructions(),
+		});
+
 		this.registerProfileCommands();
 
 		// Folder context menu: export right where you are.
@@ -185,6 +191,26 @@ export default class CondensatedVaultExporter extends Plugin {
 	}
 
 	/** Re-applies settings that affect the UI shell (called by the tab). */
+	/**
+	 * Builds the destination instructions without writing anything and puts them
+	 * on the clipboard — the one artefact a notebook user needs before adding
+	 * sources.
+	 */
+	async copyInstructions(): Promise<void> {
+		const profile = this.activeProfile();
+		if (!profile) {
+			new Notice("No export profile configured.");
+			return;
+		}
+		const outcome = await this.runner.run(profile, { mode: "preview", announce: false });
+		const text = outcome.result?.instructions;
+		if (!outcome.ok || !text) {
+			new Notice("Could not build the instructions — check the export preview for details.");
+			return;
+		}
+		await this.runner.copyText(text, "Custom instructions copied to the clipboard.");
+	}
+
 	async applySettings(): Promise<void> {
 		// Turning auto-refresh off must also cancel a pending run.
 		if (!this.settings.autoRefresh.enabled && this.autoRefreshTimer !== null) {

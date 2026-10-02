@@ -27,6 +27,9 @@ First complete release.
   for multi-part bundles.
 - Obsidian UI: export dialog, preview modal, settings tab, ribbon icon, folder
   context menu, status bar progress, cancellation, clipboard destination.
+- Custom instructions: the NotebookLM and chat profiles emit a paste-ready
+  `*.instructions.md` (corpus, citation scheme, answer rules, suggested
+  questions) and a command copies it to the clipboard.
 - Automatic refresh: one profile can keep its bundle up to date while you work,
   with a quiet period, a change fingerprint that skips unchanged runs, and the
   cached file metadata refreshed from Obsidian's live `stat` on every edit.

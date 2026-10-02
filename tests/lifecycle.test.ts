@@ -575,3 +575,38 @@ describe("refresh and notices", () => {
 		expect(String(status.textContent)).toContain("NotebookLM refreshed");
 	});
 });
+
+describe("custom instructions", () => {
+	it("copies the instructions for the active profile from the command", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		let copied = "";
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText: async (text: string) => void (copied = text) },
+		});
+		const command = plugin.commands.find((c) => c.id === "copy-instructions")!;
+		expect(command).toBeDefined();
+		await command.callback?.();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(copied).toContain("# Instructions for");
+		expect(copied).toContain("## How to answer");
+		// Nothing was written to the vault by a copy command.
+		expect(fake.vault.files.size).toBe(Object.keys(VAULT).length);
+	});
+
+	it("puts the instructions in the preview modal as a copy button", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const { PreviewModal } = await import("../src/obsidian/modals");
+		const outcome = await plugin.runner.run(plugin.settings.profiles[0], { mode: "preview" });
+		expect(outcome.result?.instructions).toBeDefined();
+		const modal = new PreviewModal(fake.app as never, outcome.result!, () => undefined);
+		modal.open();
+		const labels = Array.from(modal.contentEl.querySelectorAll("button")).map((button) => button.textContent);
+		expect(labels.some((label) => /instructions/i.test(label ?? ""))).toBe(true);
+		modal.close();
+	});
+});

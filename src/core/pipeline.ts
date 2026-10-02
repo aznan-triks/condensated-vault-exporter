@@ -51,6 +51,7 @@ import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
 import { buildLinkGraph, type LinkGraph } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
+import { buildInstructions } from "./pack/instructions";
 import { buildKeyTerms, collectTerms, extractGlossary, rankTerms } from "./intel/terms";
 import { allocateBudget, scoreDocuments, type BudgetDecision } from "./pack/budget";
 import { chunkUnits, type PackUnit } from "./pack/chunk";
@@ -474,7 +475,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			)
 		: [];
 
-	const knowledgeMap = profile.packaging.includeKnowledgeMap
+	const wantKnowledgeMap = profile.packaging.includeKnowledgeMap || profile.packaging.instructionsFile;
+	const knowledgeMap = wantKnowledgeMap
 		? buildKnowledgeMap({
 				docs: cleanedDocs,
 				// Only notes with real content: provenance stubs must not appear
@@ -636,6 +638,30 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	warnings.push(...limitViolations.map((v) => `${v.severity === "error" ? "❌" : v.severity === "warning" ? "⚠️" : "ℹ️"} ${v.message}`));
 	if (deltaNote) warnings.push(`🔄 ${deltaNote}`);
 
+	// Instructions for the destination model: always computed (the UI can offer
+	// them even when no file is written), written only when the profile asks.
+	const instructionsText = knowledgeMap
+		? buildInstructions({
+				map: knowledgeMap,
+				citationIds: profile.packaging.citationIds,
+				stats: { words: stats.words, tokens: stats.tokens, chars: stats.chars },
+				profileName: profile.name,
+				parts: parts.length,
+				volumes: volumeCount,
+				lastModified: knowledgeMap.overview.dateRange?.to,
+				destination: profile.limits.label !== "" ? profile.limits.label : profile.name,
+			})
+		: null;
+	const instructionsPath =
+		profile.packaging.instructionsFile && instructionsText
+			? joinOutputPath(
+					{ ...profile.output, ...(request.outputOverride ?? {}) },
+					planOutputNames(profile, bundleTitle, parts.length, generatedAt, volumeCount, volumeSize)[0]
+						.replace(/-v\d+(\.[^.]+)$/, "$1")
+						.replace(/\.[^.]+$/, "") + ".instructions.md",
+				)
+			: null;
+
 	// ---------------------------------------------------------------- write
 	// Per-note content hashes: they make the sidecar a real record of what was
 	// exported (and of the exact revision of each note).
@@ -688,6 +714,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			written.push(await deps.sink.write(manifestPath, JSON.stringify(merged, null, 2)));
 		}
 
+		if (instructionsPath !== null && instructionsText !== null) {
+			check();
+			written.push(await deps.sink.write(instructionsPath, instructionsText));
+		}
+
 		if (parts.length > 1 && profile.output.destination === "vault") {
 			check();
 			// A small index file makes a 50-part bundle navigable.
@@ -735,6 +766,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			largestUnitTokens: bundle.units.reduce((max, u) => Math.max(max, u.tokens), 0),
 		},
 		parts,
+		instructions: instructionsText ?? undefined,
 		manifest: {
 			...manifest,
 			parts: parts.map((p) => ({

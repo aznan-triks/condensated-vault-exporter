@@ -117,6 +117,7 @@ export const DEFAULT_PACKAGING: PackagingOptions = {
 	divider: "\n\n---\n\n",
 	noteHeadingLevel: 2,
 	includeManifest: true,
+	instructionsFile: false,
 	manifestEmbedded: false,
 	manifestSidecar: true,
 	lineEnding: "lf",
@@ -192,6 +193,9 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 					includeKnowledgeMap: true,
 					includeGlossary: true,
 					citationIds: true,
+					// A notebook is told what it is looking at: the instructions
+					// file is paste-ready in the destination's own field.
+					instructionsFile: true,
 				},
 				limits: { ...LIMIT_PRESETS[1].limits },
 				output: { ...DEFAULT_OUTPUT, folder: "Exports/NotebookLM" },
@@ -221,6 +225,7 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 					includeToc: true,
 					includeKnowledgeMap: true,
 					includeGlossary: false,
+					instructionsFile: true,
 				},
 				limits: { ...LIMIT_PRESETS[3].limits },
 				output: { ...DEFAULT_OUTPUT, folder: "Exports/Chat", alsoCopyToClipboard: true },

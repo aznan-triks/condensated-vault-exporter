@@ -87,6 +87,23 @@ Everything editable in the settings tab: folders and globs, tag/date/word filter
 5. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
 6. **Write** — parts, a `.manifest.json` with per-note hashes, and a `.index.md` when there are several parts. Incremental runs only include what changed.
 
+### The instructions file
+
+Every NotebookLM notebook (and every long chat) gets better when it is told what
+it is reading. Instead of writing that prompt by hand, the profile can emit a
+`*.instructions.md` — and the command *Copy the custom instructions for the
+active profile* puts it straight on the clipboard, ready for the destination's
+instructions field:
+
+> You are given 13 notes from a personal knowledge base (4.0 kB of Markdown,
+> ~866 tokens) … **Cite the ids**, e.g. “according to S07” … **Useful questions
+> to start with** …
+
+See [`docs/example-bundle.instructions.md`](docs/example-bundle.instructions.md).
+Every line is derived from the bundle's own statistics: structure, tags, themes,
+hubs, duplicates, broken links and the glossary. It is capped at 10 000 characters,
+the limit of NotebookLM's instructions field.
+
 ### Keep it fresh
 
 Settings → *Keep a bundle up to date automatically* watches the vault and re-runs

@@ -179,7 +179,9 @@ for (const id of Object.keys(targets)) {
 			sink: {
 				async write(path, content) {
 					// The sidecar manifest goes next to the bundle, not into it.
-					const file = path.endsWith(".manifest.json")
+					const file = path.endsWith(".instructions.md")
+						? targets[id].replace(/\.md$/, ".instructions.md")
+						: path.endsWith(".manifest.json")
 						? targets[id].replace(/\.md$/, ".manifest.json")
 						: targets[id];
 					mkdirSync(dirname(file), { recursive: true });

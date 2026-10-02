@@ -208,6 +208,11 @@ export function formatBytes(bytes: number): string {
 	return `${exponent === 0 ? Math.round(value) : value.toFixed(value < 10 ? 1 : 0)} ${units[exponent]}`;
 }
 
+/** `1 note` / `3 notes` — small grammar helper for the generated reports. */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+	return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
 export function formatDuration(ms: number): string {
 	if (ms < 1000) return `${Math.round(ms)} ms`;
 	if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;

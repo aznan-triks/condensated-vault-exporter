@@ -265,6 +265,12 @@ export class ExportRunner {
 		}
 	}
 
+	/** Clipboard for arbitrary text (used for the instructions artefact). */
+	async copyText(text: string, message: string): Promise<void> {
+		await this.writeClipboard(text);
+		new Notice(message);
+	}
+
 	private async writeClipboard(text: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(text);

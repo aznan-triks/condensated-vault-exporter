@@ -634,6 +634,16 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Write custom instructions")
+			.setDesc("A paste-ready prompt for the destination model: what the corpus is, how to cite it, what it can answer.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.packaging.instructionsFile).onChange(async (value) => {
+					profile.packaging.instructionsFile = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Repeat the note header")
 			.setDesc("Start every continuation part with the title of the note it continues.")
 			.addToggle((toggle) =>
