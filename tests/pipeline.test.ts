@@ -576,6 +576,55 @@ describe("transclusion helpers", () => {
 /*  Packaging integrity                                                        */
 /* -------------------------------------------------------------------------- */
 
+describe("run hooks", () => {
+	it("can abort before writing anything", async () => {
+		const sink = memorySink();
+		const result = runExport(
+			{ profile: testProfile() },
+			{ vault: buildFixtureVault(), sink, beforeWrite: () => false },
+		);
+		await expect(result).rejects.toThrow(/aborted/i);
+		expect(sink.written.size).toBe(0);
+	});
+
+	it("skips the vault's own excluded files", async () => {
+		const profile = testProfile({ packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never });
+		const withPattern = await runExport(
+			{ profile },
+			{ vault: buildFixtureVault(), sink: memorySink(), excludePatterns: ["daily/**"] },
+		);
+		expect(withPattern.stats.kept).toBeLessThan(5);
+		const content = withPattern.parts.map((p) => p.content).join("\n");
+		expect(content).not.toContain("Real content for the day");
+	});
+
+	it("passes the analysis concurrency through", async () => {
+		let inFlight = 0;
+		let peak = 0;
+		const files = Array.from({ length: 12 }, (_, index) =>
+			makeFile(`notes/n${index}.md`, `# Note ${index}\n\n${"word ".repeat(30)}\n`),
+		);
+		const vault = fakeVault(files);
+		const original = vault.read.bind(vault);
+		let reads = 0;
+		vault.read = async (path: string) => {
+			reads++;
+			const analysisPass = reads <= files.length;
+			inFlight++;
+			if (analysisPass) peak = Math.max(peak, inFlight);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			const text = await original(path);
+			inFlight--;
+			return text;
+		};
+		await runExport({ profile: testProfile() }, { vault, sink: memorySink(), concurrency: 2 });
+		// The analysis pass honours the requested concurrency (rendering runs
+		// afterwards with its own, smaller, budget).
+		expect(peak).toBeLessThanOrEqual(2);
+		expect(reads).toBeGreaterThan(files.length);
+	});
+});
+
 describe("packaging integrity", () => {
 	it("never loses or duplicates content when splitting into parts", async () => {
 		const vault = buildFixtureVault();

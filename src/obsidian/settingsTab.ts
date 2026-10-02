@@ -96,6 +96,30 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Notes analysed in parallel")
+			.setDesc("Higher is faster on big vaults, at the cost of memory.")
+			.addSlider((slider) =>
+				slider
+					.setLimits(1, 16, 1)
+					.setValue(this.settings.concurrency)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.settings.concurrency = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(root)
+			.setName("Ask before overwriting")
+			.setDesc("A confirmation lists the existing files a run would replace.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.settings.confirmOverwrite).onChange(async (value) => {
+					this.settings.confirmOverwrite = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
 			.setName("Analysis cache")
 			.setDesc("Pass 1 of an export analyses every note. The cache makes re-runs almost instant.")
 			.addButton((button) =>
@@ -140,6 +164,7 @@ export class ExportSettingsTab extends PluginSettingTab {
 					this.settings.profiles.push(copy);
 					this.selectedId = copy.id;
 					await this.plugin.saveSettings();
+					this.plugin.syncProfileCommands();
 					this.display();
 				}),
 			)
@@ -156,6 +181,7 @@ export class ExportSettingsTab extends PluginSettingTab {
 						this.settings.profiles = this.settings.profiles.filter((p) => p.id !== profile.id);
 						this.selectedId = this.settings.profiles[0]?.id ?? "";
 						await this.plugin.saveSettings();
+						this.plugin.syncProfileCommands();
 						this.display();
 					}),
 			);
@@ -287,6 +313,16 @@ export class ExportSettingsTab extends PluginSettingTab {
 				text.setValue(String(profile.filters.maxNotes ?? 0)).onChange(async (value) => {
 					const parsed = Number.parseInt(value, 10);
 					profile.filters.maxNotes = parsed > 0 ? parsed : null;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(root)
+			.setName("Respect Obsidian's excluded files")
+			.setDesc("Also skip the notes listed under Settings → Files & Links → Excluded files.")
+			.addToggle((toggle) =>
+				toggle.setValue(profile.filters.respectObsidianIgnore).onChange(async (value) => {
+					profile.filters.respectObsidianIgnore = value;
 					await this.plugin.saveSettings();
 				}),
 			);

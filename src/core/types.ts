@@ -58,6 +58,18 @@ export class ExportCancelledError extends Error {
 	}
 }
 
+/**
+ * Thrown when a run is stopped *before* it writes anything (the user declined
+ * the overwrite confirmation, for instance). Distinct from cancellation so the
+ * UI can explain what happened.
+ */
+export class ExportAbortedError extends Error {
+	constructor(message = "Export aborted") {
+		super(message);
+		this.name = "ExportAbortedError";
+	}
+}
+
 /* -------------------------------------------------------------------------- */
 /*  File analysis                                                              */
 /* -------------------------------------------------------------------------- */
@@ -183,6 +195,8 @@ export interface FilterOptions {
 	requireFrontmatterKey: string | null;
 	/** Never re-ingest the plugin's own previous exports. */
 	excludeOutputFolder: boolean;
+	/** Also skip the files the user excluded in Obsidian's own settings. */
+	respectObsidianIgnore: boolean;
 	/** Skip files larger than this (megabytes); 0 = no limit. */
 	maxFileMegabytes: number;
 	/** Include non-Markdown text files (.txt, .markdown, .svg-as-text…). */

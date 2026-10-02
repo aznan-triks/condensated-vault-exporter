@@ -8,11 +8,10 @@
 
 import { Notice, Plugin, TFolder } from "obsidian";
 import type { ExportProfile } from "./core/types";
-import { describeProfile } from "./core/profiles";
 import { normalizeSettings, compactSettings, type PluginSettings } from "./obsidian/settings";
 import { ExportSettingsTab } from "./obsidian/settingsTab";
 import { ExportRunner } from "./obsidian/runner";
-import { ConfirmModal, ExportDialog, PreviewModal, openFirstResult } from "./obsidian/modals";
+import { ExportDialog, PreviewModal, openFirstResult } from "./obsidian/modals";
 
 export default class CondensatedVaultExporter extends Plugin {
 	settings!: PluginSettings;
@@ -74,6 +73,8 @@ export default class CondensatedVaultExporter extends Plugin {
 			},
 		});
 
+		this.registerProfileCommands();
+
 		// Folder context menu: export right where you are.
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file) => {
@@ -99,6 +100,30 @@ export default class CondensatedVaultExporter extends Plugin {
 	onunload(): void {
 		this.runner?.cancel();
 	}
+
+	/**
+	 * One command per profile: `Export: NotebookLM`, `Export: RAG chunks`…
+	 * The command palette becomes a destination picker.
+	 */
+	private registerProfileCommands(): void {
+		const add = () => {
+			for (const profile of this.settings.profiles) {
+				const id = `export-profile-${profile.id}`;
+				if (this.profileCommandIds.has(id)) continue;
+				this.profileCommandIds.add(id);
+				this.addCommand({
+					id,
+					name: `Export with “${profile.name}”`,
+					callback: () => void this.execute(profile, "export"),
+				});
+			}
+		};
+		add();
+		this.refreshProfileCommands = add;
+	}
+
+	private profileCommandIds = new Set<string>();
+	private refreshProfileCommands: () => void = () => {};
 
 	/* ------------------------------------------------------------------ */
 
@@ -135,6 +160,11 @@ export default class CondensatedVaultExporter extends Plugin {
 
 	clearCache(): void {
 		this.runner.clearCache();
+	}
+
+	/** Makes sure every profile has a command in the palette. */
+	syncProfileCommands(): void {
+		this.refreshProfileCommands();
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -178,25 +208,6 @@ export default class CondensatedVaultExporter extends Plugin {
 			}
 		};
 
-		if (mode === "export" && this.settings.confirmOverwrite && profile.output.destination === "vault") {
-			const folder = profile.output.folder;
-			const existing = this.app.vault.getAbstractFileByPath(folder);
-			if (existing) {
-				new ConfirmModal(
-					this.app,
-					"Export into an existing folder?",
-					`“${folder}” already contains files. Parts sharing a name with an existing file are overwritten.\n\n${describeProfile(
-						profile,
-					)
-						.split("\n")
-						.slice(0, 3)
-						.join("\n")}`,
-					"Export anyway",
-					() => void run(),
-				).open();
-				return;
-			}
-		}
 		await run();
 	}
 

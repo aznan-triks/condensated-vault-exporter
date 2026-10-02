@@ -62,6 +62,7 @@ export const DEFAULT_FILTERS: FilterOptions = {
 	pathRegex: null,
 	requireFrontmatterKey: null,
 	excludeOutputFolder: true,
+	respectObsidianIgnore: true,
 	maxFileMegabytes: 8,
 	includeTextFiles: false,
 	maxNotes: null,

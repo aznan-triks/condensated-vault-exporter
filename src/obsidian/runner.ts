@@ -4,8 +4,8 @@
  * persists the delta state, and turns the result into user feedback.
  */
 
-import { App, Notice, TFile, normalizePath } from "obsidian";
-import type { ExportProfile, ExportResult, SourceFile } from "../core/types";
+import { App, Modal, Notice, TFile, normalizePath } from "obsidian";
+import { ExportAbortedError, type ExportProfile, type ExportResult, type SourceFile } from "../core/types";
 import { runExport, type ExportDeps, type PreviousManifestLike } from "../core/pipeline";
 import { AnalysisCache } from "../core/state/cache";
 import { createState, type ExportState } from "../core/state/manifest";
@@ -101,11 +101,20 @@ export class ExportRunner {
 			sink,
 			cache: this.cache,
 			state,
+			concurrency: settings.concurrency,
+			excludePatterns: this.ignoredPatterns(),
 			onProgress: progress.handle,
 			signal: progress,
 			clipboard: { write: (text: string) => this.writeClipboard(text) },
 			now: () => Date.now(),
 			pluginVersion: this.pluginVersion(),
+			beforeWrite: async (paths) => {
+				if (options.mode === "preview") return true;
+				if (!settings.confirmOverwrite || profile.output.destination !== "vault") return true;
+				const existing = paths.filter((path) => this.app.vault.getAbstractFileByPath(normalizePath(path)));
+				if (existing.length === 0) return true;
+				return await confirmOverwrite(this.app, existing);
+			},
 			readPreviousManifest: (profileId) => this.readManifest(profileId),
 			readNote: async (path: string) => {
 				const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
@@ -138,8 +147,17 @@ export class ExportRunner {
 			progress.finish();
 			this.current = null;
 			if (isCancellation(error)) {
-				new Notice("Export cancelled — nothing was written.");
+				const removed = await this.rollback(sink);
+				new Notice(
+					removed > 0
+						? `Export cancelled — ${removed} partially written file(s) were removed.`
+						: "Export cancelled — nothing was written.",
+				);
 				return { ok: false, cancelled: true };
+			}
+			if (error instanceof ExportAbortedError) {
+				new Notice(error.message);
+				return { ok: false, error: error.message };
 			}
 			const message = error instanceof Error ? error.message : String(error);
 			console.error("Condensated Vault Exporter", error);
@@ -225,6 +243,47 @@ export class ExportRunner {
 		return this.version;
 	}
 
+	/** Deletes the files a cancelled run had already written. */
+	private async rollback(sink: VaultSinkPort | FileSystemSinkPort): Promise<number> {
+		if (!(sink instanceof VaultSinkPort)) return 0;
+		let removed = 0;
+		for (const path of [...sink.written].reverse()) {
+			const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+			if (!(file instanceof TFile)) continue;
+			try {
+				await this.app.vault.delete(file);
+				removed++;
+			} catch {
+				// Leaving a file behind is not worth failing the cancellation.
+			}
+		}
+		return removed;
+	}
+
+	/**
+	 * Obsidian's "Excluded files" setting, turned into exclusion globs. Reading
+	 * it is best-effort: the accessor is unofficial, so a failure just means
+	 * "no extra exclusions".
+	 */
+	private ignoredPatterns(): string[] {
+		try {
+			const vault = this.app.vault as unknown as { getConfig?: (key: string) => unknown };
+			const raw = vault.getConfig?.("userIgnoreFilters");
+			if (!Array.isArray(raw)) return [];
+			return raw
+				.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+				.map((entry) => {
+					const trimmed = entry.trim().replace(/^\/+/, "");
+					// A folder in Obsidian's list means "everything below it".
+					if (trimmed.endsWith("/")) return `${trimmed}**`;
+					if (!trimmed.includes("*") && !trimmed.includes(".")) return `${trimmed}/**`;
+					return trimmed;
+				});
+		} catch {
+			return [];
+		}
+	}
+
 	/** Lists markdown files (used by the folder picker in the modal). */
 	async listFolders(): Promise<string[]> {
 		const files: SourceFile[] = await this.vaultPort.listFiles();
@@ -239,4 +298,50 @@ function isCancellation(error: unknown): boolean {
 		return error.name === "ExportCancelledError" || /cancel/i.test(error.message);
 	}
 	return false;
+}
+
+/** Asks the user before overwriting existing bundle parts. */
+function confirmOverwrite(app: App, paths: string[]): Promise<boolean> {
+	return new Promise((resolve) => {
+		const modal = new OverwriteModal(app, paths, resolve);
+		modal.open();
+	});
+}
+
+class OverwriteModal extends Modal {
+	private settled = false;
+
+	constructor(
+		app: App,
+		private readonly paths: string[],
+		private readonly resolve: (value: boolean) => void,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		this.contentEl.createEl("h2", { text: "Overwrite existing files?" });
+		this.contentEl.createEl("p", {
+			text: `${this.paths.length} file(s) already exist and will be replaced:`,
+		});
+		const list = this.contentEl.createEl("ul", { cls: "cve-summary-list" });
+		for (const path of this.paths.slice(0, 8)) list.createEl("li", { text: path });
+		if (this.paths.length > 8) list.createEl("li", { text: `… and ${this.paths.length - 8} more` });
+		const buttons = this.contentEl.createDiv({ cls: "cve-dialog-buttons" });
+		const confirm = buttons.createEl("button", { text: "Overwrite", cls: "mod-warning" });
+		confirm.onclick = () => this.settle(true);
+		const cancel = buttons.createEl("button", { text: "Cancel" });
+		cancel.onclick = () => this.settle(false);
+	}
+
+	private settle(value: boolean): void {
+		this.settled = true;
+		this.close();
+		this.resolve(value);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+		if (!this.settled) this.resolve(false);
+	}
 }

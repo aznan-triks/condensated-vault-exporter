@@ -21,6 +21,7 @@ import {
 	type VaultPort,
 	type SinkPort,
 } from "./types";
+import { ExportAbortedError } from "./types";
 import { hash32 } from "./util";
 import {
 	formatCount,
@@ -82,6 +83,15 @@ export interface ExportDeps {
 	pluginVersion?: string;
 	/** Continue on unreadable files instead of failing. */
 	maxFileBytes?: number;
+	/** Extra exclusion globs (e.g. Obsidian's own "excluded files" setting). */
+	excludePatterns?: string[];
+	/** Notes analysed in parallel. Defaults to 6. */
+	concurrency?: number;
+	/**
+	 * Called with the files about to be written; returning false aborts the
+	 * run before anything touches the disk.
+	 */
+	beforeWrite?: (paths: string[]) => Promise<boolean> | boolean;
 }
 
 export interface ExportRequest {
@@ -118,7 +128,12 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const pathIndex = new Map<string, string>();
 	for (const file of allFiles) pathIndex.set(file.path.toLowerCase(), file.path);
 
-	const selection = selectCandidates(allFiles, profile, deps.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES);
+	const selection = selectCandidates(
+		allFiles,
+		profile,
+		deps.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+		profile.filters.respectObsidianIgnore ? (deps.excludePatterns ?? []) : [],
+	);
 	warnings.push(...selection.warnings);
 	const discovered = selection.files.length;
 
@@ -127,7 +142,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const analyses: DocAnalysis[] = [];
 	const droppedByFilter: string[] = [];
 	let analyzed = 0;
-	const concurrency = 6;
+	const concurrency = Math.max(1, Math.min(16, deps.concurrency ?? 6));
 
 	await mapLimit(selection.files, concurrency, async (file) => {
 		check();
@@ -569,6 +584,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		check();
 		progress({ phase: "write", progress: 0.9, message: "Writing the bundle…" });
 		const names = planOutputNames(profile, bundleTitle, parts.length, generatedAt);
+		const targets = names.map((name) => joinOutputPath(output, name));
+		if (deps.beforeWrite && !(await deps.beforeWrite(targets))) {
+			throw new ExportAbortedError("The export was aborted before writing any file.");
+		}
 		for (let i = 0; i < parts.length; i++) {
 			const target = joinOutputPath(output, names[i]);
 			const finalPath = await deps.sink.write(target, parts[i].content);
@@ -646,7 +665,12 @@ export interface CandidateSelection {
 	warnings: string[];
 }
 
-export function selectCandidates(files: SourceFile[], profile: ExportProfile, maxFileBytes: number): CandidateSelection {
+export function selectCandidates(
+	files: SourceFile[],
+	profile: ExportProfile,
+	maxFileBytes: number,
+	extraExclude: string[] = [],
+): CandidateSelection {
 	const warnings: string[] = [];
 	const roots = profile.targets.map(normalizeVaultPath).filter((t) => t !== "");
 	const filters = profile.filters;
@@ -683,6 +707,7 @@ export function selectCandidates(files: SourceFile[], profile: ExportProfile, ma
 		const included = hasInclude ? matchAny(includePatterns, relative) || matchAny(includePatterns, path) : true;
 		if (!included) continue;
 		if (profile.exclude.length > 0 && (matchAny(profile.exclude, relative) || matchAny(profile.exclude, path))) continue;
+		if (extraExclude.length > 0 && (matchAny(extraExclude, relative) || matchAny(extraExclude, path))) continue;
 
 		// Cheap pre-filters.
 		if (filters.maxFileMegabytes > 0 && file.size > filters.maxFileMegabytes * 1024 * 1024) {
