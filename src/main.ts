@@ -89,21 +89,22 @@ export default class CondensatedVaultExporter extends Plugin {
 			}),
 		);
 
-		// Editing a note must invalidate its cached analysis, not the whole cache.
+		// Editing a note must invalidate its cached analysis, not the whole cache;
+		// creating or removing one changes the file list itself.
 		this.registerEvent(
 			this.app.vault.on("modify", (file) => {
-				this.runner.invalidatePath(file.path);
+				this.runner.invalidatePath(file.path, "modify");
 				this.scheduleAutoRefresh();
 			}),
 		);
 		this.registerEvent(
 			this.app.vault.on("create", (file) => {
-				this.runner.invalidatePath(file.path);
+				this.runner.invalidatePath(file.path, "structure");
 				this.scheduleAutoRefresh();
 			}),
 		);
-		this.registerEvent(this.app.vault.on("delete", (file) => this.runner.invalidatePath(file.path)));
-		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.runner.invalidatePath(oldPath)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.runner.invalidatePath(file.path, "structure")));
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.runner.invalidatePath(oldPath, "structure")));
 	}
 
 	/**

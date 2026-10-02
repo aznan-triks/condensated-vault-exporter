@@ -36,6 +36,8 @@ function toSourceFile(path: string, size: number, mtime: number, ctime: number):
 export class ObsidianVaultPort implements VaultPort {
 	private readonly app: App;
 	private listCache: SourceFile[] | null = null;
+	/** Same objects as `listCache`, for O(1) metadata refreshes. */
+	private byPath: Map<string, SourceFile> | null = null;
 
 	constructor(app: App) {
 		this.app = app;
@@ -44,6 +46,38 @@ export class ObsidianVaultPort implements VaultPort {
 	/** Drops the cached file list; call after the vault changed structurally. */
 	invalidate(): void {
 		this.listCache = null;
+		this.byPath = null;
+	}
+
+	/**
+	 * Refreshes the cached metadata of a single file.
+	 *
+	 * Obsidian updates `TFile.stat` in place, but the port hands the pipeline
+	 * plain snapshots (`SourceFile`), so an edited note would keep its old size
+	 * and modification time in the cached list — and anything that compares
+	 * those values (the automatic refresh, the delta export) would conclude
+	 * that nothing changed. Structural changes still drop the whole list.
+	 */
+	invalidateFile(path: string, change: "modify" | "structure" = "modify"): void {
+		if (change === "structure" || !this.listCache || !this.byPath) {
+			this.invalidate();
+			return;
+		}
+		const normalized = normalizePath(path);
+		const entry = this.byPath.get(normalized);
+		const file = this.app.vault.getAbstractFileByPath(normalized);
+		if (!(file instanceof TFile)) {
+			this.invalidate();
+			return;
+		}
+		if (!entry) {
+			// A file that appeared since the list was built: rebuild it.
+			this.invalidate();
+			return;
+		}
+		entry.size = file.stat.size;
+		entry.mtime = file.stat.mtime;
+		entry.ctime = file.stat.ctime;
 	}
 
 	async listFiles(roots?: string[]): Promise<SourceFile[]> {
@@ -56,6 +90,7 @@ export class ObsidianVaultPort implements VaultPort {
 			}
 			list.sort((a, b) => a.path.localeCompare(b.path));
 			this.listCache = list;
+			this.byPath = new Map(list.map((file) => [file.path, file]));
 		}
 		if (!roots || roots.length === 0) return this.listCache;
 		const normalized = roots.map((root) => root.replace(/^\/+|\/+$/g, "").toLowerCase());

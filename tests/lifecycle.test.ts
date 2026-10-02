@@ -154,9 +154,9 @@ describe("plugin lifecycle", () => {
 		fake.vault.emit("modify", { path: "notes/alpha.md" });
 		fake.vault.emit("delete", { path: "daily/2026-01-01.md" });
 		fake.vault.emit("rename", { path: "notes/beta.md" }, "notes/old-beta.md");
-		expect(spy).toHaveBeenCalledWith("notes/alpha.md");
-		expect(spy).toHaveBeenCalledWith("daily/2026-01-01.md");
-		expect(spy).toHaveBeenCalledWith("notes/old-beta.md");
+		expect(spy).toHaveBeenCalledWith("notes/alpha.md", "modify");
+		expect(spy).toHaveBeenCalledWith("daily/2026-01-01.md", "structure");
+		expect(spy).toHaveBeenCalledWith("notes/old-beta.md", "structure");
 	});
 
 	it("keeps working when the vault is empty", async () => {
@@ -473,5 +473,105 @@ describe("dialog scope estimate and clickable notices", () => {
 		(last.noticeEl as unknown as HTMLElement).click();
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		expect(fake.openedFiles.some((path) => path.startsWith("Exports/"))).toBe(true);
+	});
+});
+
+describe("automatic refresh", () => {
+	it("skips a run when nothing in scope changed", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const profile = plugin.settings.profiles[0];
+		// Preview runs: they exercise the same fingerprint logic without
+		// touching the write path (and its overwrite confirmation).
+		const first = await plugin.runner.run(profile, { mode: "preview", skipUnchanged: true });
+		expect(first.ok).toBe(true);
+		expect(first.skipped).toBeFalsy();
+
+		const second = await plugin.runner.run(profile, { mode: "preview", skipUnchanged: true });
+		expect(second.skipped).toBe(true);
+
+		// Editing a note changes the fingerprint and the run happens again.
+		await fake.vault.modify(
+			fake.vault.getAbstractFileByPath("notes/alpha.md")!,
+			"# Alpha project\n\nRewritten with enough words to pass the filter check.\n",
+		);
+		const third = await plugin.runner.run(profile, { mode: "preview", skipUnchanged: true });
+		expect(third.ok).toBe(true);
+		expect(third.skipped).toBeFalsy();
+	});
+
+	it("runs automatically after the quiet period and stops when disabled", async () => {
+		vi.useFakeTimers();
+		try {
+			const { fake, plugin } = bootApp();
+			await plugin.onload();
+			fake.ready();
+			plugin.settings.autoRefresh.enabled = true;
+			plugin.settings.autoRefresh.debounceSeconds = 2;
+			plugin.settings.autoRefresh.skipUnchanged = false;
+			const spy = vi.spyOn(plugin.runner, "run");
+
+			fake.vault.emit("modify", { path: "notes/alpha.md" });
+			// Nothing happens before the quiet period elapses…
+			expect(spy).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(2100);
+			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy.mock.calls[0][1]?.skipUnchanged).toBe(false);
+
+			// …and a second edit inside the quiet period restarts the timer
+			// instead of queueing another run.
+			fake.vault.emit("modify", { path: "notes/alpha.md" });
+			await vi.advanceTimersByTimeAsync(1000);
+			fake.vault.emit("modify", { path: "notes/beta.md" });
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(spy).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(1100);
+			expect(spy).toHaveBeenCalledTimes(2);
+
+			// Disabling cancels a pending run.
+			plugin.settings.autoRefresh.enabled = false;
+			fake.vault.emit("modify", { path: "notes/alpha.md" });
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(spy).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("refresh and notices", () => {
+	it("updates the cached file metadata when a note is edited", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		const before = await plugin.runner.estimateScope("");
+		const note = fake.vault.getAbstractFileByPath("notes/alpha.md")!;
+		await fake.vault.modify(note, `${fake.vault.files.get("notes/alpha.md")!.content}\\n${"extra words ".repeat(50)}\n`);
+		// The plugin's own vault event handler must have refreshed the snapshot.
+		const after = await plugin.runner.estimateScope("");
+		expect(after.bytes).toBeGreaterThan(before.bytes);
+	});
+
+	it("refreshes the status bar text after an automatic run", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.autoRefresh.enabled = true;
+		plugin.settings.autoRefresh.debounceSeconds = 2;
+		plugin.settings.notifications = "quiet";
+
+		// Fire the debounce with fake timers, then let the run itself proceed in
+		// real time (it awaits the vault).
+		vi.useFakeTimers();
+		fake.vault.emit("modify", { path: "notes/alpha.md" });
+		await vi.advanceTimersByTimeAsync(2100);
+		vi.useRealTimers();
+
+		const status = plugin.statusBarItems[0] as unknown as { textContent: string };
+		for (let i = 0; i < 200 && !/refreshed/.test(String(status.textContent ?? "")); i++) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		expect(String(status.textContent)).toContain("NotebookLM refreshed");
 	});
 });

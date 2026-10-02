@@ -120,6 +120,57 @@ export class ExportSettingsTab extends PluginSettingTab {
 			);
 
 		new Setting(root)
+			.setName("Keep a bundle up to date automatically")
+			.setDesc(
+				"After the vault has been quiet for a while, re-run the profile below. Only writes when the notes in scope actually changed.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.settings.autoRefresh.enabled).onChange(async (value) => {
+					this.settings.autoRefresh.enabled = value;
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+			);
+
+		if (this.settings.autoRefresh.enabled) {
+			new Setting(root)
+				.setName("Profile used for automatic runs")
+				.setDesc("Keep this one cheap: it runs in the background after every editing session.")
+				.addDropdown((dropdown) => {
+					dropdown.addOption("", `(active profile: ${this.settings.activeProfileId})`);
+					for (const profile of this.settings.profiles) dropdown.addOption(profile.id, profile.name);
+					dropdown.setValue(this.settings.autoRefresh.profileId).onChange(async (value) => {
+						this.settings.autoRefresh.profileId = value;
+						await this.plugin.saveSettings();
+					});
+				});
+
+			new Setting(root)
+				.setName("Quiet period (seconds)")
+				.setDesc("How long the vault must be still before an automatic run starts.")
+				.addSlider((slider) =>
+					slider
+						.setLimits(2, 120, 1)
+						.setValue(this.settings.autoRefresh.debounceSeconds)
+						.setDynamicTooltip()
+						.onChange(async (value) => {
+							this.settings.autoRefresh.debounceSeconds = value;
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(root)
+				.setName("Skip when nothing changed")
+				.setDesc("Compares paths, sizes and modification times before doing any work.")
+				.addToggle((toggle) =>
+					toggle.setValue(this.settings.autoRefresh.skipUnchanged).onChange(async (value) => {
+						this.settings.autoRefresh.skipUnchanged = value;
+						await this.plugin.saveSettings();
+					}),
+				);
+		}
+
+		new Setting(root)
 			.setName("Analysis cache")
 			.setDesc("Pass 1 of an export analyses every note. The cache makes re-runs almost instant.")
 			.addButton((button) =>

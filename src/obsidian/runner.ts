@@ -90,8 +90,9 @@ export class ExportRunner {
 		return `${files.length}:${(hash >>> 0).toString(16)}`;
 	}
 
-	invalidatePath(path: string): void {
+	invalidatePath(path: string, change: "modify" | "structure" = "modify"): void {
 		this.cache.invalidate(path);
+		this.vaultPort.invalidateFile(path, change);
 	}
 
 	async run(profile: ExportProfile, options: RunOptions = {}): Promise<RunOutcome> {

@@ -87,6 +87,16 @@ Everything editable in the settings tab: folders and globs, tag/date/word filter
 5. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
 6. **Write** — parts, a `.manifest.json` with per-note hashes, and a `.index.md` when there are several parts. Incremental runs only include what changed.
 
+### Keep it fresh
+
+Settings → *Keep a bundle up to date automatically* watches the vault and re-runs
+one profile after the vault has been quiet for a configurable period (default
+8 s). Two things keep it gentle: a cheap scope fingerprint (paths, sizes and
+modification times — no note is read) skips the run when nothing in scope
+changed, and the analysis cache means only edited notes are re-analysed. The
+status bar reports the refresh; nothing is opened or announced unless you asked
+for it.
+
 ### Volumes: when the corpus does not fit one source
 
 NotebookLM accepts 50 sources per notebook; a 200-part RAG-style export cannot be

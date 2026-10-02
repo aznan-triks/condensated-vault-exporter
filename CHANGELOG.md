@@ -27,6 +27,9 @@ First complete release.
   for multi-part bundles.
 - Obsidian UI: export dialog, preview modal, settings tab, ribbon icon, folder
   context menu, status bar progress, cancellation, clipboard destination.
+- Automatic refresh: one profile can keep its bundle up to date while you work,
+  with a quiet period, a change fingerprint that skips unchanged runs, and the
+  cached file metadata refreshed from Obsidian's live `stat` on every edit.
 - Volumes: exports that exceed the destination's source cap are grouped into
   numbered volumes with an import map in the index file.
 - Output quality: heading levels sit one level under the note title, collapsed
