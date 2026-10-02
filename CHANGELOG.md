@@ -27,3 +27,5 @@ First complete release.
   for multi-part bundles.
 - Obsidian UI: export dialog, preview modal, settings tab, ribbon icon, folder
   context menu, status bar progress, cancellation, clipboard destination.
+- Volumes: exports that exceed the destination's source cap are grouped into
+  numbered volumes with an import map in the index file.

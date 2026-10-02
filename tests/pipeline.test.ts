@@ -705,3 +705,52 @@ describe("packaging integrity", () => {
 		expect(content.split("Extra material that only exists in the full guide").length - 1).toBe(1);
 	});
 });
+
+describe("volumes", () => {
+	it("groups parts into source-sized volumes when the destination caps sources", async () => {
+		const files = Array.from({ length: 12 }, (_, index) =>
+			makeFile(
+				`notes/n${String(index).padStart(2, "0")}.md`,
+				`# Note ${index}\n\n${Array.from({ length: 12 }, (_, s) => `Paragraph ${s} of note ${index} about topic ${index % 3}.`).join(" ")}\n`,
+			),
+		);
+		const profile = testProfile({
+			limits: { ...testProfile().limits, maxParts: 3 },
+			packaging: {
+				...testProfile().packaging,
+				includeKnowledgeMap: false,
+				includeToc: false,
+				chunking: { mode: "maxTokens", maxTokens: 120, maxChars: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: true },
+			} as never,
+		});
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		expect(result.parts.length).toBeGreaterThan(3);
+		expect(result.parts[0].volumeTotal).toBeGreaterThan(1);
+		// Every volume respects the source cap.
+		const perVolume = new Map<number, number>();
+		for (const part of result.parts) perVolume.set(part.volume, (perVolume.get(part.volume) ?? 0) + 1);
+		for (const [, count] of perVolume) expect(count).toBeLessThanOrEqual(3);
+		// Files are named per volume and the notice says which volume it is.
+		const paths = Array.from(sink.written.keys()).filter((path) => path.endsWith(".md"));
+		expect(paths.some((path) => /-v2/.test(path))).toBe(true);
+		expect(result.parts[3].content).toContain("volume 2 of");
+		// The index explains how to import the volumes.
+		const index = Array.from(sink.written.keys()).find((path) => path.endsWith(".index.md"));
+		expect(index).toBeDefined();
+		expect(sink.written.get(index!)).toContain("import one volume at a time");
+		// And the run says what it did.
+		expect(result.warnings.some((w) => /grouped into \d+ volumes/.test(w))).toBe(true);
+		// The manifest records the volume of each part.
+		expect(result.manifest.parts.some((part) => (part as { volume?: number }).volume === 2)).toBe(true);
+	});
+
+	it("keeps a single volume when there is no source cap", async () => {
+		const result = await runExport(
+			{ profile: testProfile() },
+			{ vault: buildFixtureVault(), sink: memorySink() },
+		);
+		expect(result.parts.every((part) => part.volume === 1 && part.volumeTotal === 1)).toBe(true);
+		expect(result.parts[0].content).not.toContain("volume 1 of 1");
+	});
+});

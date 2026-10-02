@@ -13,7 +13,11 @@ const WIKILINK_RE = /(!?)\[\[([^[\]\n]+?)\]\]/g;
 const MDLINK_RE = /(!?)\[([^\]\n]*)\]\(([^)\s]+(?:\s+"[^"]*")?)\)/g;
 const AUTOLINK_RE = /<((?:https?|mailto):[^>\s]+)>/g;
 const BARE_URL_RE = /(?<![([<\w])((?:https?:\/\/|www\.)[^\s<>()"'\]]+)/g;
-const TAG_RE = /(^|[\s(>|,;:[{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
+/**
+ * Inline tag (`#tag`, `#nested/tag`). Shared with the transform pass so that
+ * stripping and extracting always agree on what a tag is.
+ */
+export const INLINE_TAG_RE = /(^|[\s(>|,;:[{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
 
 export interface ExtractedLinks {
 	links: LinkRef[];
@@ -85,8 +89,8 @@ export function extractLinksFromLine(line: string): ExtractedLinks {
 		links.push({ target: m[1], isEmbed: false, isExternal: true, url: m[1] });
 	}
 
-	TAG_RE.lastIndex = 0;
-	while ((m = TAG_RE.exec(masked)) !== null) {
+	INLINE_TAG_RE.lastIndex = 0;
+	while ((m = INLINE_TAG_RE.exec(masked)) !== null) {
 		const tag = m[2].replace(/\/+$/, "");
 		if (tag === "" || /^\d+$/.test(tag)) continue;
 		tags.push(tag);
@@ -97,7 +101,7 @@ export function extractLinksFromLine(line: string): ExtractedLinks {
 
 /** Strips a tag from a line (used by the `strip`/`hoist` tag modes). */
 export function removeInlineTags(line: string): string {
-	return line.replace(TAG_RE, (_m, prefix: string) => prefix);
+	return line.replace(INLINE_TAG_RE, (_m, prefix: string) => prefix);
 }
 
 /** True when the line consists only of links/embeds and whitespace. */

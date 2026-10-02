@@ -80,6 +80,21 @@ Everything editable in the settings tab: folders and globs, tag/date/word filter
 5. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
 6. **Write** — parts, a `.manifest.json` with per-note hashes, and a `.index.md` when there are several parts. Incremental runs only include what changed.
 
+### Volumes: when the corpus does not fit one source
+
+NotebookLM accepts 50 sources per notebook; a 200-part RAG-style export cannot be
+imported anywhere. When a destination caps the number of sources, the plugin groups
+parts into **volumes** of at most that many:
+
+```
+Exports/NotebookLM/Vault - 2026-02-01 NotebookLM -v1-part-01.md … -v1-part-50.md
+                      /Vault - 2026-02-01 NotebookLM -v2-part-51.md … -v2-part-73.md
+                      /Vault - 2026-02-01 NotebookLM.index.md   ← import map
+```
+
+Each part says which volume it belongs to, the index lists the volumes, and the
+manifest records the volume of every part.
+
 ### Design constraints
 
 - **Bounded memory**: the analysis of a note is a few hundred bytes (signature, shingle hashes, line identities) — never the text. A 20,000-note vault fits in a few tens of megabytes.

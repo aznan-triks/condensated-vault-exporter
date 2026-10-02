@@ -101,7 +101,11 @@ function estimateWeight(analysis: DocAnalysis): number {
 	const linkCost = analysis.links.length * 96;
 	const headingCost = analysis.headings.length * 64;
 	const termCost = analysis.topTerms.reduce((acc, t) => acc + t.length * 2 + 16, 0);
-	const sigCost = (analysis.shingles?.length ?? 0) * 4 + analysis.lineHashes.length * 4;
+	const sigCost =
+		(analysis.shingles?.length ?? 0) * 4 +
+		(analysis.shingleHashes?.length ?? 0) * 4 +
+		analysis.lineHashes.length * 4 +
+		analysis.lineExactHashes.length * 4;
 	const sampleCost = analysis.lineSamples.reduce((acc, l) => acc + l.length * 2 + 16, 0);
 	return 512 + linkCost + headingCost + termCost + sigCost + sampleCost;
 }

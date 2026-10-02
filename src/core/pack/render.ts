@@ -323,6 +323,9 @@ export interface PartAssemblyOptions {
 	divider: string;
 	partIndex: number;
 	partTotal: number;
+	/** 1-based volume this part belongs to (only used when there is > 1). */
+	volumeIndex?: number;
+	volumeTotal?: number;
 	variables: Record<string, string>;
 	title: string;
 	stats: PlanStats;
@@ -340,13 +343,20 @@ export function assemblePart(units: PackUnit[], options: PartAssemblyOptions): s
 		part: String(options.partIndex + 1),
 		total: String(options.partTotal),
 		part_index: String(options.partIndex),
+		volume: String(options.volumeIndex ?? 1),
+		volume_total: String(options.volumeTotal ?? 1),
 	};
+	const volume =
+		options.volumeTotal !== undefined && options.volumeTotal > 1
+			? { index: options.volumeIndex ?? 1, total: options.volumeTotal }
+			: undefined;
 	const header = appendPartNotice(
 		applyTemplate(options.header, variables).trim(),
 		options.partIndex,
 		options.partTotal,
 		options.format,
 		variables.title,
+		volume,
 	);
 	const footer = options.footer.trim() === "" ? "" : applyTemplate(options.footer, variables).trim();
 
@@ -446,9 +456,21 @@ function joinWithSeparator(items: string[], separator: string): string[] {
 	return out;
 }
 
-function appendPartNotice(header: string, index: number, total: number, format: ExportFormat, title: string): string {
-	if (total <= 1) return header;
-	const notice = `Part ${index + 1} of ${total}`;
+function appendPartNotice(
+	header: string,
+	index: number,
+	total: number,
+	format: ExportFormat,
+	title: string,
+	volume?: { index: number; total: number },
+): string {
+	if (total <= 1 && !volume) return header;
+	const notice = [
+		total > 1 ? `Part ${index + 1} of ${total}` : null,
+		volume ? `volume ${volume.index} of ${volume.total}` : null,
+	]
+		.filter(Boolean)
+		.join(" · ");
 	switch (format) {
 		case "markdown":
 			return `${header}\n\n> 📦 **${notice}** — “${title}”`;

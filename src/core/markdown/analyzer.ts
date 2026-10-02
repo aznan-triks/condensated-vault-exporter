@@ -44,14 +44,13 @@ export const SHINGLE_K = 8;
  * (and makes containment — "is this note an extract of that one?" — reliable
  * instead of noisy). ~1 KB per note.
  */
-export const MAX_EXACT_SHINGLES = 256;
+export const MAX_EXACT_SHINGLES = 512;
 
 import {
 	MIN_BOILERPLATE_LINE_LENGTH,
 	canonicalizeLine,
 	hashCanonicalLine,
 	hashExactLine,
-	normalizeExact,
 } from "../condense/boilerplate";
 
 export interface AnalyzeOptions {
@@ -173,7 +172,6 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 
 	const lineHashes = new Uint32Array(candidateLines.length);
 	const lineExactHashes = new Uint32Array(candidateLines.length);
-	const lineDigitFree = new Uint8Array(candidateLines.length);
 	const canonicalLines: string[] = new Array(candidateLines.length);
 	for (let i = 0; i < candidateLines.length; i++) {
 		const canonical = canonicalizeLine(candidateLines[i]);
@@ -181,8 +179,7 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 		const hash = hashCanonicalLine(canonical);
 		lineHashes[i] = hash;
 		lineExactHashes[i] = hashExactLine(candidateLines[i]);
-		lineDigitFree[i] = normalizeExact(candidateLines[i]) === canonical ? 1 : 0;
-		sink?.addLine(hash, canonical, { exactHash: lineExactHashes[i], digitFree: lineDigitFree[i] === 1 });
+		sink?.addLine(hash, canonical, { exactHash: lineExactHashes[i] });
 	}
 	const lineSamples = canonicalLines.slice(0, MAX_LINE_SAMPLES);
 	sink?.endDocument();
@@ -221,7 +218,6 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 		shingleCount,
 		lineHashes,
 		lineExactHashes,
-		lineDigitFree,
 		lineSamples,
 		topTerms: rankTerms(wordFrequencies, 14),
 		signal,

@@ -160,8 +160,6 @@ export interface DocAnalysis {
 	lineHashes: Uint32Array;
 	/** Same lines hashed with digits preserved (exact-identity matching). */
 	lineExactHashes: Uint32Array;
-	/** 1 when the line contained no digit (safe to match by template alone). */
-	lineDigitFree: Uint8Array;
 	/** First normalized lines, kept only for human-readable reports. */
 	lineSamples: string[];
 	/** Most characteristic terms, used for the knowledge map / tag cloud. */
@@ -474,6 +472,9 @@ export interface CondensedDoc {
 export interface BundlePart {
 	index: number;
 	total: number;
+	/** 1-based volume (a source-sized group of parts) — 1 when there is only one. */
+	volume: number;
+	volumeTotal: number;
 	path: string;
 	content: string;
 	chars: number;

@@ -526,6 +526,12 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const chunked = chunkUnits(bundle.units, chunking, assemblyOverhead);
 
 	const generatedAt = new Date(deps.now?.() ?? Date.now());
+	// A destination that caps the number of sources (NotebookLM: 50) is served
+	// by grouping parts into volumes: each volume is a source-sized bundle of
+	// its own, instead of one oversized export that cannot be imported at all.
+	const volumeSize = profile.limits.maxParts > 0 ? profile.limits.maxParts : Math.max(1, chunked.parts.length);
+	const volumeCount = Math.max(1, Math.ceil(chunked.parts.length / Math.max(1, volumeSize)));
+	const volumeOf = (index: number) => (volumeCount > 1 ? Math.floor(index / volumeSize) + 1 : 1);
 	const parts = chunked.parts.map((part, index) => {
 		const content = normalizeLineEndings(
 			assemblePart(part.units, {
@@ -535,6 +541,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				divider: profile.packaging.divider,
 				partIndex: index,
 				partTotal: chunked.parts.length,
+				volumeIndex: volumeOf(index),
+				volumeTotal: volumeCount,
 				variables: bundle.variables,
 				title: bundleTitle,
 				stats,
@@ -550,6 +558,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		return {
 			index,
 			total: chunked.parts.length,
+			volume: volumeOf(index),
+			volumeTotal: volumeCount,
 			path: "",
 			content,
 			chars: content.length,
@@ -560,9 +570,12 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		};
 	});
 
+	const partsPerVolume = Math.max(1, Math.min(volumeSize, parts.length));
 	const limitViolations = checkLimits(
 		{
-			parts: parts.length,
+			// A volume is what a single source of the destination receives, so the
+			// part cap is measured per volume, not over the whole export.
+			parts: volumeCount > 1 ? partsPerVolume : parts.length,
 			totalWords: stats.words,
 			totalTokens: stats.tokens,
 			maxPartWords: Math.max(0, ...parts.map((p) => p.words)),
@@ -571,6 +584,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		},
 		profile.limits,
 	);
+	if (volumeCount > 1) {
+		warnings.push(
+			`ℹ️ ${parts.length} parts exceed the ${profile.limits.maxParts}-source limit of the destination, so they were grouped into ${volumeCount} volumes of at most ${partsPerVolume} parts. Import one volume (or notebook) at a time.`,
+		);
+	}
 	warnings.push(...chunked.warnings);
 	warnings.push(...limitViolations.map((v) => `${v.severity === "error" ? "❌" : v.severity === "warning" ? "⚠️" : "ℹ️"} ${v.message}`));
 	if (deltaNote) warnings.push(`🔄 ${deltaNote}`);
@@ -602,7 +620,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	if (request.mode !== "preview") {
 		check();
 		progress({ phase: "write", progress: 0.9, message: "Writing the bundle…" });
-		const names = planOutputNames(profile, bundleTitle, parts.length, generatedAt);
+		const names = planOutputNames(profile, bundleTitle, parts.length, generatedAt, volumeCount, volumeSize);
 		const targets = names.map((name) => joinOutputPath(output, name));
 		if (deps.beforeWrite && !(await deps.beforeWrite(targets))) {
 			throw new ExportAbortedError("The export was aborted before writing any file.");
@@ -624,7 +642,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 
 		if (parts.length > 1 && profile.output.destination === "vault") {
 			// A small index file makes a 50-part bundle navigable.
-			const indexPath = joinOutputPath(output, names[0].replace(/\.[^.]+$/, "") + ".index.md");
+			const indexPath = joinOutputPath(
+				output,
+				names[0].replace(/-v\d+(\.[^.]+)$/, "$1").replace(/\.[^.]+$/, "") + ".index.md",
+			);
 			written.push(await deps.sink.write(indexPath, renderPartIndex(profile, bundleTitle, parts, generatedAt)));
 		}
 
@@ -664,7 +685,17 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			largestUnitTokens: bundle.units.reduce((max, u) => Math.max(max, u.tokens), 0),
 		},
 		parts,
-		manifest: { ...manifest, parts: parts.map((p) => ({ index: p.index, path: p.path, sources: p.sources.length, words: p.words, tokens: p.tokens })) },
+		manifest: {
+			...manifest,
+			parts: parts.map((p) => ({
+				index: p.index,
+				volume: p.volumeTotal > 1 ? p.volume : undefined,
+				path: p.path,
+				sources: p.sources.length,
+				words: p.words,
+				tokens: p.tokens,
+			})),
+		},
 		stats,
 		warnings,
 		written,
@@ -1081,13 +1112,17 @@ export function planOutputNames(
 	bundleTitle: string,
 	partCount: number,
 	generatedAt: Date,
+	volumeCount = 1,
+	volumeSize = partCount,
 ): string[] {
 	const extension = extensionFor(profile.packaging.format);
 	const variables = templateVariables(profile, bundleTitle, generatedAt);
 	const base = applyTemplate(profile.output.fileNameTemplate, { ...variables, part: "", total: String(partCount) }).trim();
 	const withExt = base.toLowerCase().endsWith(extension) ? base : `${base}${extension}`;
+	const usesVolumeVariable = /\{\{\s*volume/.test(profile.output.fileNameTemplate);
 	const names: string[] = [];
 	for (let i = 0; i < partCount; i++) {
+		const volume = volumeCount > 1 ? Math.floor(i / Math.max(1, volumeSize)) + 1 : 1;
 		if (partCount === 1) {
 			names.push(sanitizeFileName(withExt, `bundle${extension}`));
 			continue;
@@ -1097,8 +1132,14 @@ export function planOutputNames(
 			part: String(i + 1),
 			part_padded: String(i + 1).padStart(2, "0"),
 			total: String(partCount),
+			volume: String(volume),
+			volume_total: String(volumeCount),
 		}).trim();
-		const stem = numbered.toLowerCase().endsWith(extension) ? numbered : `${numbered}${extension}`;
+		let stem = numbered.toLowerCase().endsWith(extension) ? numbered : `${numbered}${extension}`;
+		// Volumes must never collide, even with a template that ignores them.
+		if (volumeCount > 1 && !usesVolumeVariable) {
+			stem = stem.replace(new RegExp(`${escapeRegExp(extension)}$`), `-v${volume}${extension}`);
+		}
 		names.push(sanitizeFileName(stem, `bundle-${i + 1}${extension}`));
 	}
 	// Guarantee uniqueness even with a template that ignores {{part}}.
@@ -1128,6 +1169,10 @@ function templateVariables(profile: ExportProfile, bundleTitle: string, generate
 		day: pad(date.getDate()),
 		notes: "",
 	};
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extensionFor(format: ExportProfile["packaging"]["format"]): string {
@@ -1161,7 +1206,15 @@ function normalizeLineEndings(text: string, ending: "lf" | "crlf"): string {
 function renderPartIndex(
 	profile: ExportProfile,
 	bundleTitle: string,
-	parts: { index: number; path: string; words: number; tokens: number; sources: string[] }[],
+	parts: {
+		index: number;
+		volume: number;
+		volumeTotal: number;
+		path: string;
+		words: number;
+		tokens: number;
+		sources: string[];
+	}[],
 	generatedAt: Date,
 ): string {
 	const lines: string[] = [];
@@ -1173,8 +1226,19 @@ function renderPartIndex(
 		"",
 	);
 	lines.push("| # | File | Notes | Words | ~Tokens |", "| --- | --- | --- | --- | --- |");
+	let currentVolume = -1;
 	for (const part of parts) {
+		if (part.volumeTotal > 1 && part.volume !== currentVolume) {
+			currentVolume = part.volume;
+			lines.push(`| | **Volume ${part.volume} of ${part.volumeTotal}** | | | |`);
+		}
 		lines.push(`| ${part.index + 1} | \`${basename(part.path)}\` | ${part.sources.length} | ${formatCount(part.words)} | ${formatCount(part.tokens)} |`);
+	}
+	if (parts.length > 0 && parts[0].volumeTotal > 1) {
+		lines.push(
+			"",
+			`> The destination accepts at most ${profile.limits.maxParts} sources: import one volume at a time.`,
+		);
 	}
 	lines.push("");
 	lines.push(`> Profile: **${profile.name}** — ${profile.description || "no description"}`);
@@ -1252,7 +1316,15 @@ function buildManifest(
 	profile: ExportProfile,
 	title: string,
 	stats: PlanStats,
-	parts: { index: number; path: string; words: number; tokens: number; sources: string[] }[],
+	parts: {
+		index: number;
+		volume: number;
+		volumeTotal: number;
+		path: string;
+		words: number;
+		tokens: number;
+		sources: string[];
+	}[],
 	generatedAt: Date,
 	dedupe: DedupeOutcome,
 	boilerplateSamples: number,
@@ -1273,7 +1345,14 @@ function buildManifest(
 		hashes,
 		stats,
 		roots: profile.targets,
-		parts: parts.map((p) => ({ index: p.index, path: p.path, sources: p.sources.length, words: p.words, tokens: p.tokens })),
+		parts: parts.map((p) => ({
+			index: p.index,
+			volume: p.volumeTotal > 1 ? p.volume : undefined,
+			path: p.path,
+			sources: p.sources.length,
+			words: p.words,
+			tokens: p.tokens,
+		})),
 		durationMs: (deps.now?.() ?? Date.now()) - startedAt,
 		warnings: [...warnings],
 		duplicates: dedupe.groups.length,
@@ -1307,8 +1386,6 @@ function describeError(error: unknown): string {
 	if (error instanceof Error) return error.message;
 	return String(error);
 }
-
-export { selectCandidates as _selectCandidates };
 
 function citationIndex(id: string): number {
 	const match = /^S(\d+)/.exec(id);

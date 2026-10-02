@@ -5,7 +5,7 @@ import { estimateTokens, countTokens } from "../src/core/tokens";
 import { hash32, naturalCompare, sanitizeFileName, slugify, normalizeVaultPath, mapLimit } from "../src/core/util";
 import { splitSentences, scanLines, fenceRanges, stripInlineMarkup } from "../src/core/markdown/syntax";
 import { extractLinksFromLine, resolveLinkTarget } from "../src/core/markdown/links";
-import { analyzeDocument, signatureSimilarity } from "../src/core/markdown/analyzer";
+import { analyzeDocument, compareSignatures, signatureSimilarity } from "../src/core/markdown/analyzer";
 
 describe("glob", () => {
 	it("matches star patterns anywhere in the path", () => {
@@ -240,5 +240,52 @@ describe("analyzer", () => {
 		const ac = signatureSimilarity(a.shingles, c.shingles);
 		expect(ab).toBeGreaterThan(0.2);
 		expect(ab).toBeGreaterThan(ac);
+	});
+});
+
+describe("splitting", () => {
+	it("cuts unbreakable runs down to the limit", async () => {
+		const { hardSplit } = await import("../src/core/pack/chunk");
+		const blob = "A".repeat(20_000); // no whitespace at all
+		const pieces = hardSplit(blob, 100);
+		expect(pieces.length).toBeGreaterThan(10);
+		for (const piece of pieces) expect(piece.length).toBeLessThanOrEqual(360);
+		expect(pieces.join("")).toBe(blob);
+	});
+
+	it("keeps words intact when splitting prose", async () => {
+		const { hardSplit } = await import("../src/core/pack/chunk");
+		const text = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
+		const pieces = hardSplit(text, 50);
+		expect(pieces.length).toBeGreaterThan(3);
+		for (const piece of pieces) {
+			expect(piece.startsWith("word")).toBe(true);
+			expect(piece.endsWith(" ")).toBe(false);
+		}
+		expect(pieces.join(" ").replace(/\s+/g, " ")).toBe(text.replace(/\s+/g, " "));
+	});
+
+	it("estimates containment from the signature and the shingle counts", () => {
+		const short = analyzeDocument(
+			{ path: "short.md", name: "short.md", folder: "", ext: "md", size: 0, mtime: 0, ctime: 0 },
+			`# Short\n\n${Array.from({ length: 28 }, (_, i) => `Sentence ${i} about retrieval and storage systems.`).join(" ")}\n`,
+		);
+		// Short notes keep their exact shingles: comparison is then exact.
+		expect(short.shingleHashes).not.toBeNull();
+		expect(short.shingleCount).toBe(short.shingleHashes!.length);
+		const comparison = compareSignatures(short.shingles, short.shingles, short.shingleCount, short.shingleCount);
+		expect(comparison.jaccard).toBeCloseTo(1, 5);
+		expect(comparison.containment).toBeCloseTo(1, 2);
+
+		// A long note keeps only the MinHash signature, with an upper bound on
+		// the number of distinct shingles instead of the exact count.
+		const long = analyzeDocument(
+			{ path: "long.md", name: "long.md", folder: "", ext: "md", size: 0, mtime: 0, ctime: 0 },
+			`# Long\n\n${Array.from({ length: 1200 }, (_, i) => `Sentence ${i} about retrieval and storage systems.`).join(" ")}\n`,
+		);
+		expect(long.shingleHashes).toBeNull();
+		expect(long.shingleCount).toBeGreaterThan(256);
+		const self = compareSignatures(long.shingles, long.shingles, long.shingleCount, long.shingleCount);
+		expect(self.jaccard).toBeCloseTo(1, 5);
 	});
 });

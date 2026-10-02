@@ -13,7 +13,7 @@
 import type { ExportFormat, TransformOptions } from "../types";
 import { basename, stripExtension } from "../util";
 import { stripBoilerplate, type BoilerplateOptions } from "../condense/boilerplate";
-import { extractLinksFromLine } from "./links";
+import { extractLinksFromLine, removeInlineTags } from "./links";
 import {
 	collapseBlankLines,
 	countWords,
@@ -370,11 +370,10 @@ function appendAnchor(label: string, heading?: string, block?: string): string {
 /*  Tags                                                                       */
 /* -------------------------------------------------------------------------- */
 
-const TAG_RE = /(^|[\s(>|,;:[{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
-
 function removeTagsFromLine(line: string): string {
-	return line
-		.replace(TAG_RE, (_m, prefix: string) => prefix)
+	// Same regex as extraction: a tag must be recognised identically in both
+	// directions, otherwise "strip all tags" leaves some behind.
+	return removeInlineTags(line)
 		.replace(/[ \t]{2,}/g, " ")
 		.trimEnd();
 }

@@ -19,7 +19,6 @@ import type { BoilerplateOptions } from "../types";
 export type { BoilerplateOptions };
 
 /** Cap on the number of lines pushed to a sink per document. */
-export const MAX_SINK_LINES = 400;
 /** Lines shorter than this are too generic to be treated as boilerplate. */
 export const MIN_BOILERPLATE_LINE_LENGTH = 8;
 
@@ -30,8 +29,6 @@ export const MIN_BOILERPLATE_LINE_LENGTH = 8;
 export interface LineIdentity {
 	/** Hash of the line with digits preserved (exact-identity matching). */
 	exactHash: number;
-	/** True when the raw line contained no digit. */
-	digitFree: boolean;
 }
 
 export interface LineSink {
@@ -147,23 +144,14 @@ export class BoilerplateAccumulator implements LineSink {
 	}
 
 	/** Feeds an already-analyzed document (used with the analysis cache). */
-	addDocument(doc: {
-		lineHashes: Uint32Array;
-		lineExactHashes?: Uint32Array;
-		lineDigitFree?: Uint8Array;
-		lineSamples: string[];
-	}): void {
+	addDocument(doc: { lineHashes: Uint32Array; lineExactHashes?: Uint32Array; lineSamples: string[] }): void {
 		this.beginDocument();
 		const byHash = new Map<number, string>();
 		for (const sample of doc.lineSamples) byHash.set(hashCanonicalLine(sample), sample);
 		for (let i = 0; i < doc.lineHashes.length; i++) {
 			const hash = doc.lineHashes[i];
 			const exactHash = doc.lineExactHashes?.[i];
-			this.addLine(
-				hash,
-				byHash.get(hash),
-				exactHash === undefined ? undefined : { exactHash, digitFree: doc.lineDigitFree?.[i] === 1 },
-			);
+			this.addLine(hash, byHash.get(hash), exactHash === undefined ? undefined : { exactHash });
 		}
 		this.endDocument();
 	}
@@ -281,7 +269,3 @@ export function stripBoilerplate(
 	return { text: keep.join("\n"), removedLines: removed };
 }
 
-/** Convenience helper for the transform pass. */
-export function boilerplateLineHasher(): (line: string) => number {
-	return hashBoilerplateLine;
-}

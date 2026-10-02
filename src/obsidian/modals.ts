@@ -254,7 +254,12 @@ export class PreviewModal extends Modal {
 			["Notes kept", `${stats.kept} of ${stats.discovered} discovered`],
 			["Words", formatCount(stats.words)],
 			["Tokens", `~${formatCount(stats.tokens)}`],
-			["Parts", `${this.result.parts.length}`],
+			[
+				"Parts",
+				this.result.parts[0]?.volumeTotal > 1
+					? `${this.result.parts.length} in ${this.result.parts[0].volumeTotal} volumes`
+					: `${this.result.parts.length}`,
+			],
 			["Filters", `${stats.droppedByFilter} filtered · ${stats.droppedAsDuplicate} duplicates · ${stats.droppedAsStub} stubs`],
 			["Condensed", `${stats.boilerplateLines} boilerplate lines · ${stats.summarized} summarised notes`],
 		];

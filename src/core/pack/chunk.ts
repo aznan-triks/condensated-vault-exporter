@@ -303,21 +303,31 @@ export function splitUnit(unit: PackUnit, limitTokens: number, options: ChunkOpt
  * Used as a last resort for text without any structural boundary.
  */
 export function hardSplit(text: string, limitTokens: number): string[] {
-	const words = text.split(/(\s+)/);
 	const pieces: string[] = [];
 	let current = "";
 	let tokens = 0;
-	for (const word of words) {
-		const wordTokens = estimateTokensFromChars(word.length);
-		if (tokens + wordTokens > limitTokens && current.trim() !== "") {
-			pieces.push(current.trimEnd());
-			current = "";
-			tokens = 0;
+	const flush = () => {
+		if (current.trim() !== "") pieces.push(current.trimEnd());
+		current = "";
+		tokens = 0;
+	};
+	for (const word of text.split(/(\s+)/)) {
+		let chunk = word;
+		// A single unbreakable run (a base64 blob, a very long URL) still has to
+		// fit: slice it by characters as the very last resort.
+		while (estimateTokensFromChars(chunk.length) > limitTokens) {
+			const maxChars = Math.max(1, Math.floor(limitTokens * 3.6));
+			const head = chunk.slice(0, maxChars);
+			flush();
+			pieces.push(head);
+			chunk = chunk.slice(maxChars);
 		}
-		current += word;
-		tokens += wordTokens;
+		const chunkTokens = estimateTokensFromChars(chunk.length);
+		if (tokens + chunkTokens > limitTokens && current.trim() !== "") flush();
+		current += chunk;
+		tokens += chunkTokens;
 	}
-	if (current.trim() !== "") pieces.push(current.trimEnd());
+	flush();
 	return pieces.length > 0 ? pieces : [text];
 }
 
