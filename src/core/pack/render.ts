@@ -439,21 +439,14 @@ export function assemblePart(units: PackUnit[], options: PartAssemblyOptions): s
 			const body = units
 				.filter((unit) => unit.role !== "footer")
 				.map((unit) => unit.content.trimEnd());
-			const chunks = [header, ...joinWithSeparator(body, separator)];
+			// One blank line around the divider: joining the pieces with "\n\n"
+			// *and* inserting a separator between them produced three.
+			const chunks = [header, body.join(`\n\n${separator.trim()}\n\n`)];
 			if (footer) chunks.push(footer);
-			return chunks.filter((chunk) => chunk.trim() !== "").join("\n\n");
+			const text = chunks.filter((chunk) => chunk.trim() !== "").join("\n\n");
+			return text.replace(/\n{4,}/g, "\n\n\n");
 		}
 	}
-}
-
-function joinWithSeparator(items: string[], separator: string): string[] {
-	if (items.length <= 1) return items;
-	const out: string[] = [];
-	items.forEach((item, index) => {
-		if (index > 0) out.push(separator.trimEnd());
-		out.push(item);
-	});
-	return out;
 }
 
 function appendPartNotice(

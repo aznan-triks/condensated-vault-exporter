@@ -45,7 +45,7 @@ import {
 	type ContentResolver,
 	type TransformStats,
 } from "./markdown/transforms";
-import { BoilerplateAccumulator, normalizeLine, stripBoilerplate } from "./condense/boilerplate";
+import { BoilerplateAccumulator, lineHasDigits, normalizeLine, stripBoilerplate } from "./condense/boilerplate";
 import { detectDuplicates, type DedupeOutcome } from "./condense/dedupe";
 import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
@@ -320,11 +320,6 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		warnings.push(...transformed.warnings.slice(0, 5));
 
 		let body = transformed.text;
-		// A note with no heading of its own is still a titled document in the
-		// bundle: without this, a run of untitled notes reads as one wall.
-		if (profile.transform.ensureTitle && body.trim() !== "" && !/^\s{0,3}#{1,6}\s/m.test(body)) {
-			body = `${"#".repeat(Math.max(1, Math.min(6, profile.transform.noteHeadingLevel)))} ${doc.title}\n\n${body}`;
-		}
 		let summaryApplied = false;
 		let truncated = false;
 
@@ -406,15 +401,21 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 
 	// Collapsed duplicates become tiny provenance stubs.
 	if (profile.condensation.dedupe.enabled && profile.condensation.dedupe.mode === "collapse") {
+		// The stubs take the next citation ids so that a duplicate is still a
+		// citable source ("see S13, a copy of S04") instead of a nameless entry.
+		let nextStubId = included.length + 1;
 		for (const group of dedupe.groups) {
 			const representativeId = citationByPath.get(group.representative);
 			if (!representativeId) continue;
 			for (const duplicate of group.duplicates) {
+				const stubId = profile.packaging.citationIds
+					? `S${String(nextStubId++).padStart(2, "0")}`
+					: "";
 				rendered.push({
-					id: "",
+					id: stubId,
 					path: duplicate,
 					title: stripExtension(basename(duplicate)),
-					body: `*Duplicate of ${representativeId} — content omitted (similarity ${(group.similarity * 100).toFixed(0)} %).*`,
+					body: `*Duplicate of ${representativeId}${stubId ? ` (${stubId})` : ""} — content omitted (similarity ${(group.similarity * 100).toFixed(0)} %).*`,
 					tags: [],
 					aliases: [],
 					frontmatter: {},
@@ -483,7 +484,13 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				themes: buildThemes(cleanedDocs, related, { minSimilarity: 0.45, minSize: 3, maxThemes: 12 }),
 				keyTerms: buildKeyTerms(cleanedDocs).byPath,
 				duplicates: dedupe.groups,
-				boilerplate: boilerplate.samples.slice(0, 8),
+				// Only lines the stripper would really have removed: a template
+				// shared by three notes but below the length floor is not a
+				// removal, and reporting it would be a lie.
+				boilerplate: boilerplate.samples
+					.filter((sample) => sample.text.trim().length >= profile.condensation.boilerplate.minLength)
+					.filter((sample) => !lineHasDigits(sample.text))
+					.slice(0, 8),
 				stats: {
 					discovered,
 					kept: stats.kept,

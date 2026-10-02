@@ -121,7 +121,11 @@ export async function transformDocument(
 	const lines = scanLines(text);
 	const titleText = normalizeForCompare(context.title ?? stripExtension(context.path));
 	const noteMinLevel = options.normalizeHeadingLevels ? shallowestHeading(lines) : 7;
-	const levelShift = noteMinLevel < 7 ? options.noteHeadingLevel + 1 - noteMinLevel : 0;
+	// The note title sits at `noteHeadingLevel`. When the note has an H1 it
+	// *is* the title, so nothing is inserted above it; when it starts deeper,
+	// its shallowest heading has one level of room under the title.
+	const levelShift =
+		noteMinLevel < 7 ? options.noteHeadingLevel - (noteMinLevel === 1 ? 1 : noteMinLevel - 1) : 0;
 	let droppedTitleHeading = false;
 
 	const out: string[] = [];
@@ -212,6 +216,19 @@ export async function transformDocument(
 	}
 	flushCodeRun();
 
+	// A note with no heading of its own is still a titled document in the
+	// bundle. A note whose H1 *was* the title had that heading dropped above
+	// (the bundle prints the title itself), so only a note that never had a
+	// heading gets one inserted here.
+	if (options.ensureTitle && !droppedTitleHeading) {
+		const hasHeading = out.some((line) => /^\s{0,3}#{1,6}\s/.test(line));
+		const hasContent = out.some((line) => line.trim() !== "");
+		if (!hasHeading && hasContent) {
+			const level = Math.max(1, Math.min(6, options.noteHeadingLevel));
+			out.unshift(`${"#".repeat(level)} ${context.title ?? stripExtension(context.path)}`, "");
+		}
+	}
+
 	// -- 5. embeds & attachments ---------------------------------------------
 	let rendered = out.join("\n");
 	rendered = await resolveEmbeds(rendered, options, context, stats, warnings, 0);
@@ -222,8 +239,9 @@ export async function transformDocument(
 
 	// -- 6. cleanup -----------------------------------------------------------
 	if (options.trimTrailingWhitespace) rendered = stripTrailingWhitespace(rendered);
-	if (options.collapseBlankLines >= 0) rendered = collapseBlankLines(rendered, options.collapseBlankLines);
-	rendered = rendered.replace(/\n{3,}/g, "\n\n").trim();
+	const maxBlank = options.collapseBlankLines;
+	if (maxBlank >= 0) rendered = collapseBlankLines(rendered, maxBlank);
+	rendered = rendered.replace(/\n{4,}/g, "\n\n\n").trim();
 
 	return {
 		text: rendered,

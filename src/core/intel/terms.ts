@@ -136,6 +136,21 @@ export interface GlossaryEntry {
 }
 
 const DEFINITION_RE = /^\s*(?:\*\*|__)?([\p{L}\p{N}][^:\n—–-]{1,60})(?:\*\*|__)?\s*(?:[:—–]|-\s)\s*(\S.{9,240})$/u;
+const DEFINITION_VERB_RE =
+	/\b(is|are|was|were|means|refer(?:s)? to|denot(?:es|e)|describ(?:es|e)|consists? of|stands? for|represent(?:s)?|defin(?:es|ed) as|serves? as|measures?|returns?|enables?|allows?|stores?|maps?|computes?)\b/i;
+
+/**
+ * A glossary entry must read like a definition: a sentence, not a status
+ * update or a bullet list that merely happens to contain a colon.
+ */
+function isDefinitionLike(text: string): boolean {
+	if (text.length < 12 || text.length > 320) return false;
+	if (/^[[\]>|*+\-]/.test(text)) return false; // list item, quote or table row
+	if (/^[a-z]/.test(text)) return false; // definitions start a new phrase
+	if (/\b(todo|tbd|maybe|later|blocked)\b/i.test(text)) return false;
+	if (!DEFINITION_VERB_RE.test(text) && !/[.!?…]$/.test(text)) return false;
+	return true;
+}
 const SHORT_NOTE_WORDS = 160;
 
 /**
@@ -158,10 +173,14 @@ export function extractGlossary(docs: { analysis: DocAnalysis; body: string }[])
 			// A glossary entry is a *term*, not a sentence: keep it short and
 			// refuse anything that looks like prose ("Real content for the day").
 			if (term === "" || term.length > 48 || term.split(/\s+/).length > 4 || term.includes(",")) continue;
+			const definition = match[2].trim();
+			if (!isDefinitionLike(definition)) continue;
 			const key = term.toLowerCase();
-			if (seen.has(key)) continue;
+			const definitionKey = definition.toLowerCase().replace(/\s+/g, " ");
+			if (seen.has(key) || seen.has(`=${definitionKey}`)) continue;
 			seen.add(key);
-			entries.push({ term, definition: match[2].trim(), path: analysis.file.path });
+			seen.add(`=${definitionKey}`);
+			entries.push({ term, definition, path: analysis.file.path });
 			found++;
 			if (found >= 3) break;
 		}
@@ -176,7 +195,10 @@ export function extractGlossary(docs: { analysis: DocAnalysis; body: string }[])
 			const mentionsTerm = sentence
 				? sentence.toLowerCase().includes(analysis.title.toLowerCase().split(/\s+/)[0])
 				: false;
-			if (sentence && mentionsTerm && sentence.length > 20 && sentence.length < 320) {
+			// The definition must be one line of prose: a list of links that
+			// happens to end in a period is not a definition of anything.
+			const singleLine = sentence !== undefined && !sentence.includes("\n") && isDefinitionLike(sentence);
+			if (sentence && mentionsTerm && singleLine && sentence.length > 20 && sentence.length < 320) {
 				const key = analysis.title.toLowerCase();
 				if (!seen.has(key)) {
 					seen.add(key);

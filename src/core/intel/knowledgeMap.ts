@@ -319,10 +319,12 @@ export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRe
 			rows.push(`- **${map.brokenLinks.length} broken link(s)**, e.g. \`${map.brokenLinks[0].from}\` → “${map.brokenLinks[0].target}”`);
 		}
 		if (map.boilerplate.length > 0) {
-			rows.push(`- **${map.boilerplate.length} repeated line(s)** removed as boilerplate, e.g. ${map.boilerplate
-				.slice(0, 3)
-				.map((b) => `“${escapeMarkdown(b.text)}” (in ${b.docs} notes)`)
-				.join(", ")}`);
+			rows.push(
+				`- **Repeated lines** were removed as boilerplate, e.g. ${map.boilerplate
+					.slice(0, 3)
+					.map((b) => `“${escapeMarkdown(b.text)}” (in ${b.docs} notes)`)
+					.join(", ")}`,
+			);
 		}
 		if (rows.length > 0) {
 			lines.push("### Quality report", "", ...rows, "");

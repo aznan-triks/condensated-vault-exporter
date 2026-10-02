@@ -243,6 +243,26 @@ describe("analyzer", () => {
 	});
 });
 
+describe("hashes", () => {
+	it("produces stable 16-character lowercase hex digests", async () => {
+		const { hash64, contentHash } = await import("../src/core/util");
+		for (const text of ["", "a", "hello world", "x".repeat(5000), "accents éàü and emoji 🚀"]) {
+			const digest = hash64(text);
+			expect(digest).toMatch(/^[0-9a-f]{16}$/);
+			expect(hash64(text)).toBe(digest); // deterministic
+			expect(contentHash(text)).toMatch(/^[0-9a-f]{32}$/);
+		}
+		// Different content, different digest.
+		const seen = new Set(Array.from({ length: 500 }, (_, i) => hash64(`note number ${i}`)));
+		expect(seen.size).toBe(500);
+	});
+
+	it("changes when a character changes", async () => {
+		const { contentHash } = await import("../src/core/util");
+		expect(contentHash("the quick brown fox")).not.toBe(contentHash("the quick brown fix"));
+	});
+});
+
 describe("splitting", () => {
 	it("cuts unbreakable runs down to the limit", async () => {
 		const { hardSplit } = await import("../src/core/pack/chunk");
@@ -287,5 +307,15 @@ describe("splitting", () => {
 		expect(long.shingleCount).toBeGreaterThan(256);
 		const self = compareSignatures(long.shingles, long.shingles, long.shingleCount, long.shingleCount);
 		expect(self.jaccard).toBeCloseTo(1, 5);
+	});
+});
+
+describe("blank lines", () => {
+	it("keeps paragraph breaks instead of welding paragraphs together", async () => {
+		const { collapseBlankLines } = await import("../src/core/markdown/syntax");
+		expect(collapseBlankLines("a\n\nb", 1)).toBe("a\n\nb");
+		expect(collapseBlankLines("a\n\n\n\n\nb", 1)).toBe("a\n\nb");
+		expect(collapseBlankLines("a\n\n\n\n\nb", 2)).toBe("a\n\n\nb");
+		expect(collapseBlankLines("a\n\nb", 0)).toBe("a\nb");
 	});
 });

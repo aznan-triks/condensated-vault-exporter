@@ -133,7 +133,9 @@ export function hash64(input: string, seed = 0): string {
 	b ^= b >>> 15;
 	b = Math.imul(b, 0x2c1b3c6d) >>> 0;
 	b ^= b >>> 12;
-	return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+	// `>>> 0` matters: without it the final xorshifts can leave a negative
+	// int32 and `toString(16)` would emit a minus sign into the hash.
+	return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
 }
 
 /** Content hash for a document body (stable across platforms). */

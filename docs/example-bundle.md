@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "plugin": {
+    "id": "condensated-vault-exporter",
+    "version": "1.0.0"
+  },
+  "generatedAt": "2026-01-20T12:00:00.000Z",
+  "profileId": "notebooklm",
+  "profileName": "NotebookLM",
+  "format": "markdown",
+  "hashes": {
+    "Daily/2026-01-15.md": "91bd59f9cc204a3a33524ce5ec6907ab",
+    "Daily/2026-01-16.md": "81839163217b4c35466487107d8fc0cc",
+    "Daily/2026-01-17.md": "13bda43fba97d6505cab146bad0e2f0e",
+    "Meetings/2026-01-12 standup.md": "aa287e38b5b2627c27541b0e257300db",
+    "MOCs/Retrieval MOC.md": "9410f6303f3f7a47c5ec33f7d33caf00",
+    "Notes/Embeddings cheat sheet.md": "fe7ffeaaef0e6ea692f409994c3363a2",
+    "Notes/Retrieval log.md": "ad705e7ea98f7fba4ed31392bd16f4aa",
+    "Projects/Atlas evaluation.md": "aa98172e03a397a72d7b79e797f417dc",
+    "Projects/Atlas ranking.md": "fa01339f310aac400cff551276a872be",
+    "Projects/Atlas retrieval.md": "e88e0a7fae77a96ce96f83cd8de15c44",
+    "Reference/BM25.md": "f8ab7581af2c9e7068b9fa4f4f365092",
+    "Reference/Reciprocal rank fusion.md": "87957369c65e13917b2a9c318011e4e5",
+    "Meetings/2026-01-19 standup.md": "a93b998144a69936dce0357544dabebd"
+  },
+  "stats": {
+    "discovered": 13,
+    "kept": 13,
+    "droppedByFilter": 0,
+    "droppedAsDuplicate": 1,
+    "droppedAsStub": 0,
+    "droppedAsUnreadable": 0,
+    "words": 642,
+    "tokens": 866,
+    "chars": 4108,
+    "boilerplateLines": 9,
+    "summarized": 0
+  },
+  "roots": [],
+  "parts": [
+    {
+      "index": 0,
+      "path": "",
+      "sources": 14,
+      "words": 1364,
+      "tokens": 2052
+    }
+  ],
+  "durationMs": 0,
+  "warnings": [],
+  "duplicates": 1
+}

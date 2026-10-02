@@ -29,6 +29,11 @@ First complete release.
   context menu, status bar progress, cancellation, clipboard destination.
 - Volumes: exports that exceed the destination's source cap are grouped into
   numbered volumes with an import map in the index file.
+- Output quality: heading levels sit one level under the note title, collapsed
+  duplicates are citable stubs, the glossary only keeps real definitions, the
+  quality report only lists boilerplate the stripper really removed, blank lines
+  survive (paragraph breaks are Markdown structure, not whitespace), and
+  `npm run demo` regenerates the committed example bundle.
 - Performance: `npm run bench`, a 2.5× faster analysis pass (MinHash by double
   hashing, 32-bit content hash) and link resolution by name index instead of a
   full vault scan per unresolved link.

@@ -144,11 +144,18 @@ export function stripTrailingWhitespace(text: string): string {
 	return text.replace(/[ \t]+$/gm, "");
 }
 
-/** Collapses 3+ consecutive blank lines into `max` blank lines. */
+/**
+ * Keeps at most `max` blank lines in a row (a paragraph break is one blank
+ * line, i.e. `\n\n`). Zero removes every blank line.
+ *
+ * Getting this wrong is not cosmetic: Markdown ends a paragraph, a list or a
+ * table at a blank line, so collapsing them all welds consecutive paragraphs
+ * and list items into one block.
+ */
 export function collapseBlankLines(text: string, max = 1): string {
 	if (max <= 0) return text.replace(/\n{2,}/g, "\n");
-	const re = new RegExp(`\\n{${max + 1},}`, "g");
-	return text.replace(re, "\n".repeat(max));
+	const re = new RegExp(`\\n{${max + 2},}`, "g");
+	return text.replace(re, "\n".repeat(max + 1));
 }
 
 export function countWords(text: string): number {
