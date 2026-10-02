@@ -186,6 +186,10 @@ const vault = {
 const targets: Record<string, string> = {
 	notebooklm: "docs/example-bundle.md",
 	"chat-context": "docs/example-chat-context.md",
+	// The machine-readable side of the plugin: one JSON object per line, with
+	// the note's metadata, so the shape an embedding pipeline receives is
+	// visible in the repository too.
+	"rag-chunks": "docs/example-rag.jsonl",
 };
 mkdirSync("docs", { recursive: true });
 for (const id of Object.keys(targets)) {
@@ -197,16 +201,28 @@ for (const id of Object.keys(targets)) {
 			now: () => Date.parse("2026-01-20T12:00:00Z"),
 			sink: {
 				async write(path, content) {
-					// The sidecars go next to the bundle, not into it: whatever
+					// The companions go next to the bundle, not into it: whatever
 					// suffix the pipeline chose, the documented names stay stable.
+					// Multi-part bundles keep one file per part, numbered the same
+					// way the index table lists them.
 					const suffix = path.endsWith(".instructions.md")
 						? ".instructions.md"
 						: path.endsWith(".manifest.json")
 						? ".manifest.json"
 						: path.endsWith(".report.md")
 						? ".report.md"
+						: path.endsWith(".index.md")
+						? ".index.md"
 						: "";
-					const file = suffix === "" ? targets[id] : targets[id].replace(/\.md$/, suffix);
+					const base = targets[id].replace(/\.(md|jsonl|json|txt|xml)$/, "");
+					const extension = /\.(md|jsonl|json|txt|xml)$/.exec(targets[id])?.[0] ?? ".md";
+					const part = /-part-(\d+)\.[a-z]+$/.exec(path);
+					const file =
+						suffix !== ""
+							? `${base}${suffix}`
+							: part
+							? `${base}-${part[1]}${extension}`
+							: targets[id];
 					mkdirSync(dirname(file), { recursive: true });
 					writeFileSync(file, content);
 					return path;

@@ -65,6 +65,9 @@ First complete release.
   really keeps (a 28 % budget over six sentences keeps two, i.e. 33 %). On the
   5 000-note benchmark "Chat context" now fills its single 150 k-token part with
   829 notes instead of writing two parts.
+- The documented example set now includes the machine-readable output:
+  `npm run demo` also writes `docs/example-rag-*.jsonl` (three parts, one
+  complete JSON record per line, each part with its own index and manifest).
 - Machine formats survive a note bigger than a part: JSONL, JSON and XML split
   an oversized note into several *complete* records before serialising (same
   metadata, `chunk: {index, total}` / `chunk="1/6"`). Previously the chunker cut
