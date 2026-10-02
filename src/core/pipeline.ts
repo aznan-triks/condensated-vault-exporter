@@ -428,9 +428,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	if (cappedByFilter.length > 0) {
 		warnings.push(`${cappedByFilter.length} note(s) were left out because the profile caps the export at ${profile.filters.maxNotes} notes.`);
 	}
-	if (included.length === 0 && discovered > 0) {
+	if (included.length === 0) {
 		warnings.push(
-			"No notes matched the current filters — the bundle contains only the corpus map. Check the folder, tag and date filters.",
+			discovered > 0
+				? "No notes matched the current filters — the bundle contains only the corpus map. Check the folder, tag and date filters."
+				: "Nothing in this vault matched the profile — check the folders it targets.",
 		);
 	}
 	included.forEach((entry, index) => {
@@ -697,6 +699,11 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		chunking,
 	});
 	const chunked = chunkUnits(bundle.units, chunking, assemblyOverhead);
+	if (chunked.parts.length === 0) {
+		// A profile without a contents list or a corpus map has nothing to write
+		// when no note matched: say so instead of finishing silently.
+		warnings.push("There was nothing to write, so no file was produced.");
+	}
 
 	const generatedAt = new Date(deps.now?.() ?? Date.now());
 	// A destination that caps the number of sources (NotebookLM: 50) is served

@@ -355,6 +355,16 @@ describe("packaging", () => {
 		expect(result.warnings.some((w) => w.includes("without corrupting it"))).toBe(false);
 	});
 
+	it("says so when there is nothing to write", async () => {
+		// A profile without a contents list or a corpus map has no preamble to
+		// fall back on: an empty vault must not finish silently.
+		const profile = createDefaultProfiles().find((p) => p.id === "rag-chunks")!;
+		const result = await runExport({ profile }, { vault: fakeVault([]), sink: memorySink() });
+		expect(result.parts).toHaveLength(0);
+		expect(result.warnings.some((w) => w.includes("no file was produced"))).toBe(true);
+		expect(result.warnings.some((w) => w.includes("Nothing in this vault matched"))).toBe(true);
+	});
+
 	it("does not strip the only sentence a note has, even when every note shares it", async () => {
 		const body =
 			"Retrieval ranking compares candidate passages with graded judgements, and the evaluation set has to stay fixed across runs for the numbers to mean anything at all.";

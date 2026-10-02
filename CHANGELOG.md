@@ -98,6 +98,11 @@ First complete release.
   against the vault and reported — the report ends with the files the bundle
   only points at, the instructions file tells the destination not to invent
   their content, and the sidecar records `attachments: {count, bytes}`.
+- Hostile-vault hardening: a sentence shared by every note is no longer
+  stripped as boilerplate when it is the note's whole body (a vault of copies
+  used to export five headings and no prose), an export with nothing to write
+  says so instead of finishing silently, and the report no longer prints an
+  empty path for aggregate rows ("- `` — 3 notes excluded…").
 - Repeated headings whose section still carries content are kept: removing
   "## Gratitude" while its `- coffee` item survived left orphaned bullets that
   read like corruption. Headings still go when everything below them was
