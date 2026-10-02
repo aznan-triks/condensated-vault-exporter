@@ -1,6 +1,6 @@
 # Instructions for NotebookLM (free)
 
-You are given 13 notes from a personal knowledge base (4.0 kB of Markdown, ~866 tokens). They were exported with the **NotebookLM** profile.
+You are given 13 notes from a personal knowledge base (4.1 kB of Markdown, ~873 tokens). They were exported with the **NotebookLM** profile.
 
 **Where the notes live.** Projects (3 notes, 237 words), Daily (3 notes, 143 words), Reference (2 notes, 126 words), Notes (2 notes, 111 words), Meetings (1 note, 43 words), MOCs (1 note, 35 words).
 

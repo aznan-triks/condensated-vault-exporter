@@ -443,8 +443,11 @@ describe("end-to-end export", () => {
 		expect(content).toContain("Alpha project");
 		expect(content).toContain("Corpus overview");
 		expect(content).toContain("Alpha is about building a retrieval system");
-		// boilerplate shared by the three daily notes is removed
-		expect(content).not.toContain("Gratitude");
+		// Repeated boilerplate lines go, but the repeated "## Gratitude" heading
+		// stays: the item under it differs per note, and a bare "- coffee" with
+		// nothing above it reads like a bug in the source.
+		expect(content).toContain("## Gratitude");
+		expect(content).toContain("- coffee");
 		// the duplicate is not repeated: only a short provenance stub points to it
 		const stubIndex = content.indexOf("`archive/old-copy.md`");
 		expect(stubIndex).toBeGreaterThan(-1);
@@ -677,7 +680,7 @@ describe("packaging integrity", () => {
 		expect(result.chunking.units).toBeGreaterThan(1);
 	});
 
-	it("keeps notes whose digits carry meaning and strips real templates", async () => {
+	it("keeps lines whose digits carry meaning and strips repeated template lines", async () => {
 		const files = [
 			makeFile("a.md", "# Day 1\n\n## Template\n\n- fixed line\n\nScore: 12 points today\n\nUnique alpha sentence about retrieval.\n"),
 			makeFile("b.md", "# Day 2\n\n## Template\n\n- fixed line\n\nScore: 47 points today\n\nUnique beta sentence about storage.\n"),
@@ -688,7 +691,10 @@ describe("packaging integrity", () => {
 		});
 		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
 		const content = result.parts.map((p) => p.content).join("\n");
-		expect(content).not.toContain("## Template");
+		// The repeated "- fixed line" goes; the heading stays because the score
+		// line and the sentence under it are unique to each note.
+		expect(content).not.toContain("- fixed line");
+		expect(content).toContain("## Template");
 		expect(content).not.toContain("- fixed line");
 		// The varying numbers are content: all three scores survive.
 		expect(content).toContain("Score: 12 points today");
@@ -1143,5 +1149,31 @@ describe("realized-size budgeting", () => {
 		// And not far below it either: a budget that leaves half the room empty
 		// is a budget that threw content away for nothing.
 		expect(result.parts[0].tokens).toBeGreaterThan(limit * 0.6);
+	});
+});
+
+describe("boilerplate headings", () => {
+	it("keeps a repeated heading when its section still has content", async () => {
+		const accumulator = new BoilerplateAccumulator({ enabled: true, minDocs: 3, minLength: 8, blocks: true, maxRemovalRatio: 1 });
+		const files = [
+			makeFile("d0.md", "# Day 0\n\n## Gratitude\n- coffee\n- the quiet morning\n\nUnique content for day 0 with enough words.\n"),
+			makeFile("d1.md", "# Day 1\n\n## Gratitude\n- tea\n- the quiet morning\n\nUnique content for day 1 with enough words.\n"),
+			makeFile("d2.md", "# Day 2\n\n## Gratitude\n- water\n- the quiet morning\n\nUnique content for day 2 with enough words.\n"),
+			makeFile("d3.md", "# Day 3\n\n## Gratitude\n- water\n- the quiet morning\n\nUnique content for day 3 with enough words.\n"),
+			makeFile("d4.md", "# Day 4\n\n## Gratitude\n- the quiet morning\n\n## Log\nUnique content for day 4 with enough words.\n"),
+		];
+		for (const file of files) accumulator.addDocument(analyzeDocument(toSourceFile(file), file.content));
+		const boiler = accumulator.finish();
+		const options = { enabled: true, minDocs: 3, minLength: 8, blocks: true, maxRemovalRatio: 1 };
+		const stripped = stripBoilerplate(files[0].content, boiler.hashes, options as never);
+		// "the quiet morning" repeats in every note and goes; "## Gratitude" is
+		// repeated too, but it must stay to introduce the surviving "- coffee".
+		expect(stripped.text).not.toContain("the quiet morning");
+		expect(stripped.text).toContain("## Gratitude");
+		expect(stripped.text).toContain("- coffee");
+
+		// When everything under the heading repeats, the heading goes with it.
+		const emptied = stripBoilerplate(files[4].content, boiler.hashes, options as never);
+		expect(emptied.text).not.toContain("## Gratitude");
 	});
 });

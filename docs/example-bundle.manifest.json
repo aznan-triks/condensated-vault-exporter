@@ -30,10 +30,10 @@
     "droppedAsDuplicate": 1,
     "droppedAsStub": 0,
     "droppedAsUnreadable": 0,
-    "words": 642,
-    "tokens": 866,
-    "chars": 4108,
-    "boilerplateLines": 9,
+    "words": 645,
+    "tokens": 873,
+    "chars": 4150,
+    "boilerplateLines": 6,
     "summarized": 0
   },
   "roots": [],
@@ -42,8 +42,8 @@
       "index": 0,
       "path": "",
       "sources": 14,
-      "words": 1364,
-      "tokens": 2052
+      "words": 1367,
+      "tokens": 2060
     }
   ],
   "durationMs": 0,

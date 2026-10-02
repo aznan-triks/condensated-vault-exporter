@@ -40,6 +40,10 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- Repeated headings whose section still carries content are kept: removing
+  "## Gratitude" while its `- coffee` item survived left orphaned bullets that
+  read like corruption. Headings still go when everything below them was
+  boilerplate too.
 - Export diff: each run compares itself with the previous manifest (new,
   changed, removed, unchanged) and the preview, the notice and the sidecar
   report it. The sidecar now stores this run's hashes — it used to keep the

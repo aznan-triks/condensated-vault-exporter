@@ -199,6 +199,11 @@ export class BoilerplateAccumulator implements LineSink {
 	}
 }
 
+/** `## Heading`, `### Heading …` — setext headings are not considered here. */
+function isAtxHeading(line: string): boolean {
+	return /^\s{0,3}#{1,6}\s+\S/.test(line);
+}
+
 export interface StripResult {
 	text: string;
 	removedLines: number;
@@ -252,6 +257,24 @@ export function stripBoilerplate(
 			}
 			i = j;
 		}
+	}
+
+	// A repeated heading whose section still has content that survived is kept:
+	// removing it would leave list items hanging with nothing to explain them
+	// ("- coffee" under no heading), which reads like a bug in the source.
+	for (let i = 0; i < lines.length; i++) {
+		if (!isBoiler[i] || !isAtxHeading(lines[i])) continue;
+		let keepsContent = false;
+		for (let j = i + 1; j < lines.length; j++) {
+			// The scan stops at the next heading: only the immediate section
+			// decides, so a repeated "## Tasks" above unique prose is kept.
+			if (isAtxHeading(lines[j])) break;
+			if (lines[j].trim() !== "" && !isBoiler[j]) {
+				keepsContent = true;
+				break;
+			}
+		}
+		if (keepsContent) isBoiler[i] = false;
 	}
 
 	const keep: string[] = [];

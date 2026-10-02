@@ -98,8 +98,10 @@ describe("plugin lifecycle", () => {
 		expect(bundle).toContain("Alpha project");
 		// The corpus map is part of the preamble.
 		expect(bundle).toContain("Corpus overview");
-		// Boilerplate shared by the three daily notes is gone.
-		expect(bundle).not.toContain("Gratitude");
+		// The repeated "## Gratitude" heading stays: the item under it differs
+		// per note, and a bare bullet would have nothing to introduce it.
+		expect(bundle).toContain("Gratitude");
+		expect(bundle).toContain("- coffee");
 		// The settings were persisted.
 		expect(plugin.data).not.toBeNull();
 	});
