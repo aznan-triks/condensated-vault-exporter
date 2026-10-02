@@ -38,6 +38,13 @@ export const SHINGLE_SIZE = 32;
 
 /** Word-shingle length used for near-duplicate detection. */
 export const SHINGLE_K = 8;
+/**
+ * Notes with at most this many shingles also keep their exact shingle hashes,
+ * which turns duplicate detection from an estimate into an exact comparison
+ * (and makes containment — "is this note an extract of that one?" — reliable
+ * instead of noisy). ~1 KB per note.
+ */
+export const MAX_EXACT_SHINGLES = 256;
 
 import {
 	MIN_BOILERPLATE_LINE_LENGTH,
@@ -180,7 +187,7 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 	const lineSamples = canonicalLines.slice(0, MAX_LINE_SAMPLES);
 	sink?.endDocument();
 
-	const { shingles, wordCount, shingleCount } = buildSignature(proseText);
+	const { shingles, shingleHashes, wordCount, shingleCount } = buildSignature(proseText);
 	const signal = computeSignal({
 		words: wordCount,
 		proseWords,
@@ -210,6 +217,7 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 		outgoing,
 		stats,
 		shingles,
+		shingleHashes,
 		shingleCount,
 		lineHashes,
 		lineExactHashes,
@@ -261,13 +269,19 @@ const MAX_LINE_SAMPLES = 24;
  * k-word shingles. Jaccard similarity between two notes is then estimated by
  * the fraction of equal slots.
  */
-function buildSignature(text: string): { shingles: Uint32Array | null; wordCount: number; shingleCount: number } {
+function buildSignature(text: string): {
+	shingles: Uint32Array | null;
+	shingleHashes: Uint32Array | null;
+	wordCount: number;
+	shingleCount: number;
+} {
 	const words = text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
 	const wordCount = words.length;
-	if (wordCount < SHINGLE_K * 2) return { shingles: null, wordCount, shingleCount: 0 };
+	if (wordCount < SHINGLE_K * 2) return { shingles: null, shingleHashes: null, wordCount, shingleCount: 0 };
 
 	const signature = new Uint32Array(SHINGLE_SIZE).fill(0xffffffff);
 	const shingle = new Array<string>(SHINGLE_K);
+	const distinct = new Set<number>();
 	for (let i = 0; i + SHINGLE_K <= words.length; i++) {
 		for (let k = 0; k < SHINGLE_K; k++) shingle[k] = words[i + k];
 		const text2 = shingle.join(" ");
@@ -275,8 +289,15 @@ function buildSignature(text: string): { shingles: Uint32Array | null; wordCount
 			const h = hash32(text2, s * 0x9e3779b1);
 			if (h < signature[s]) signature[s] = h;
 		}
+		if (distinct.size <= MAX_EXACT_SHINGLES) distinct.add(hash32(text2, 0x51ed2701));
 	}
-	return { shingles: signature, wordCount, shingleCount: Math.max(0, wordCount - SHINGLE_K + 1) };
+	const exact = distinct.size <= MAX_EXACT_SHINGLES;
+	const hashes = exact ? Uint32Array.from([...distinct].sort((a, b) => a - b)) : null;
+	// For long notes the distinct count is no longer tracked exactly (the set is
+	// capped for memory reasons); the number of shingle positions is a tight
+	// upper bound and only feeds the approximate containment estimate.
+	const shingleCount = exact ? distinct.size : Math.max(0, wordCount - SHINGLE_K + 1);
+	return { shingles: signature, shingleHashes: hashes, wordCount, shingleCount };
 }
 
 interface SignalInput {

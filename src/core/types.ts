@@ -133,7 +133,16 @@ export interface DocAnalysis {
 	 * near-duplicate detection. Kept tiny so the whole vault fits in memory.
 	 */
 	shingles: Uint32Array | null;
-	/** Number of word shingles the signature was built from (containment math). */
+	/**
+	 * Sorted exact shingle hashes, kept for notes with at most
+	 * `MAX_EXACT_SHINGLES` shingles: lets duplicate detection compare two short
+	 * notes exactly instead of estimating.
+	 */
+	shingleHashes: Uint32Array | null;
+	/**
+	 * Number of distinct word shingles: exact for short notes, a tight upper
+	 * bound for long ones (used by the containment estimate).
+	 */
 	shingleCount: number;
 	/** Bounded hashes of the note's normalized lines (boilerplate detection). */
 	lineHashes: Uint32Array;

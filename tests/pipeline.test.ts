@@ -20,6 +20,77 @@ function note(title: string, body: string, extra: string[] = []): string {
 	return [`# ${title}`, "", body, ...extra].join("\n");
 }
 
+// A small but *realistic* vault: notes long enough for similarity,
+// duplicate detection and boilerplate removal to be meaningful.
+const longProse = (topic: string, extra: string) =>
+	[
+		`${topic} matters because retrieval quality decides whether an assistant answers from the right source.`,
+		`A pipeline that ingests ${extra} should normalise the text before indexing it.`,
+		`Chunking strategy, overlap and metadata all influence the final answer quality.`,
+		`We measured recall and precision on a set of representative questions.`,
+		`The experiment showed that small chunks with generous overlap performed best.`,
+		`Follow-up work should look at reranking and at query expansion.`,
+	].join(" ");
+
+function buildFixtureVault() {
+	const files = [
+		makeFile(
+			"projects/alpha.md",
+			[
+				"---",
+				"tags: [project, alpha]",
+				"---",
+				"# Alpha project",
+				"",
+				"Alpha is about building a retrieval system. It uses [[projects/beta]] for storage.",
+				"",
+				longProse("Alpha", "documents and embeddings"),
+				"",
+				"## Goals",
+				"- [x] define the scope",
+				"- [ ] implement ingestion",
+				"",
+				"## Notes",
+				"Boiling water is unrelated but this sentence adds length to the note for the token budget test.",
+			].join("\n"),
+		),
+		makeFile(
+			"projects/beta.md",
+			"---\ntags: [project, beta]\n---\n# Beta project\n\nBeta stores documents and serves them back quickly. Related to [[projects/alpha]].\n\n" +
+				longProse("Beta", "storage layers and backups") +
+				"\n",
+		),
+		makeFile(
+			"daily/2026-01-01.md",
+			"# 2026-01-01\n\n## Gratitude\n\n- coffee\n\n## Tasks\n\n- [ ] ship\n\nReal content for the day: reviewed the alpha retrieval design and wrote notes.\n" +
+				longProse("Monday", "the morning review") +
+				"\n",
+		),
+		makeFile(
+			"daily/2026-01-02.md",
+			"# 2026-01-02\n\n## Gratitude\n\n- tea\n\n## Tasks\n\n- [x] ship\n\nReal content for the day: implemented the beta storage layer and tested it.\n" +
+				longProse("Tuesday", "the storage layer") +
+				"\n",
+		),
+		makeFile(
+			"daily/2026-01-03.md",
+			"# 2026-01-03\n\n## Gratitude\n\n- water\n\n## Tasks\n\n- [ ] rest\n\nReal content: wrote documentation about the ingestion pipeline today.\n" +
+				longProse("Wednesday", "the ingestion pipeline") +
+				"\n",
+		),
+		// A note that only exists as a copy of the first half of Alpha.
+		makeFile(
+			"archive/old-copy.md",
+			"# Alpha project\n\nAlpha is about building a retrieval system. It uses [[projects/beta]] for storage.\n\n" +
+				longProse("Alpha", "documents and embeddings") +
+				"\n",
+		),
+		makeFile(".obsidian/workspace.json", "{}"),
+		makeFile("empty.md", "# Empty\n"),
+	];
+	return fakeVault(files);
+};
+
 describe("transform pipeline", () => {
 	it("rewrites wikilinks, unwraps callouts, cleans tasks and strips comments", async () => {
 		const text = [
@@ -340,79 +411,10 @@ describe("manifest & delta", () => {
 });
 
 describe("end-to-end export", () => {
-	// A small but *realistic* vault: notes long enough for similarity,
-	// duplicate detection and boilerplate removal to be meaningful.
-	const longProse = (topic: string, extra: string) =>
-		[
-			`${topic} matters because retrieval quality decides whether an assistant answers from the right source.`,
-			`A pipeline that ingests ${extra} should normalise the text before indexing it.`,
-			`Chunking strategy, overlap and metadata all influence the final answer quality.`,
-			`We measured recall and precision on a set of representative questions.`,
-			`The experiment showed that small chunks with generous overlap performed best.`,
-			`Follow-up work should look at reranking and at query expansion.`,
-		].join(" ");
 
-	const buildVault = () => {
-		const files = [
-			makeFile(
-				"projects/alpha.md",
-				[
-					"---",
-					"tags: [project, alpha]",
-					"---",
-					"# Alpha project",
-					"",
-					"Alpha is about building a retrieval system. It uses [[projects/beta]] for storage.",
-					"",
-					longProse("Alpha", "documents and embeddings"),
-					"",
-					"## Goals",
-					"- [x] define the scope",
-					"- [ ] implement ingestion",
-					"",
-					"## Notes",
-					"Boiling water is unrelated but this sentence adds length to the note for the token budget test.",
-				].join("\n"),
-			),
-			makeFile(
-				"projects/beta.md",
-				"---\ntags: [project, beta]\n---\n# Beta project\n\nBeta stores documents and serves them back quickly. Related to [[projects/alpha]].\n\n" +
-					longProse("Beta", "storage layers and backups") +
-					"\n",
-			),
-			makeFile(
-				"daily/2026-01-01.md",
-				"# 2026-01-01\n\n## Gratitude\n\n- coffee\n\n## Tasks\n\n- [ ] ship\n\nReal content for the day: reviewed the alpha retrieval design and wrote notes.\n" +
-					longProse("Monday", "the morning review") +
-					"\n",
-			),
-			makeFile(
-				"daily/2026-01-02.md",
-				"# 2026-01-02\n\n## Gratitude\n\n- tea\n\n## Tasks\n\n- [x] ship\n\nReal content for the day: implemented the beta storage layer and tested it.\n" +
-					longProse("Tuesday", "the storage layer") +
-					"\n",
-			),
-			makeFile(
-				"daily/2026-01-03.md",
-				"# 2026-01-03\n\n## Gratitude\n\n- water\n\n## Tasks\n\n- [ ] rest\n\nReal content: wrote documentation about the ingestion pipeline today.\n" +
-					longProse("Wednesday", "the ingestion pipeline") +
-					"\n",
-			),
-			// A note that only exists as a copy of the first half of Alpha.
-			makeFile(
-				"archive/old-copy.md",
-				"# Alpha project\n\nAlpha is about building a retrieval system. It uses [[projects/beta]] for storage.\n\n" +
-					longProse("Alpha", "documents and embeddings") +
-					"\n",
-			),
-			makeFile(".obsidian/workspace.json", "{}"),
-			makeFile("empty.md", "# Empty\n"),
-		];
-		return fakeVault(files);
-	};
 
 	it("produces a coherent bundle and writes the expected files", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const sink = memorySink();
 		const state = createState();
 		const profile = testProfile({
@@ -449,7 +451,7 @@ describe("end-to-end export", () => {
 	});
 
 	it("splits into parts that respect the configured limit", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const sink = memorySink();
 		const profile = testProfile({
 			packaging: {
@@ -475,12 +477,12 @@ describe("end-to-end export", () => {
 				chunking: { mode: "maxTokens", maxTokens: 60, maxChars: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: true },
 			} as never,
 		});
-		const result = await runExport({ profile }, { vault: buildVault(), sink: memorySink() });
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink: memorySink() });
 		expect(result.warnings.some((w) => w.includes("smaller than what the bundle header"))).toBe(true);
 	});
 
 	it("writes JSONL with one document per line", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const sink = memorySink();
 		const profile = testProfile({
 			packaging: { ...testProfile().packaging, format: "jsonl", chunking: { mode: "single", maxChars: 0, maxTokens: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: false }, includeToc: false, includeKnowledgeMap: false } as never,
@@ -494,7 +496,7 @@ describe("end-to-end export", () => {
 	});
 
 	it("supports incremental (delta) exports", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const profiles = testProfile({ output: { ...testProfile().output, incremental: "delta" } });
 		const state = createState();
 		const first = await runExport({ profile: profiles }, { vault, sink: memorySink(), state });
@@ -506,7 +508,7 @@ describe("end-to-end export", () => {
 	});
 
 	it("honours filters, ordering and note caps", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const profile = testProfile({
 			filters: { ...testProfile().filters, tagsAny: ["project"], maxNotes: 1 } as never,
 			order: { ...testProfile().order, by: "title", direction: "desc" } as never,
@@ -519,7 +521,7 @@ describe("end-to-end export", () => {
 	});
 
 	it("can preview without writing anything", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const sink = memorySink();
 		const result = await runExport({ profile: testProfile(), mode: "preview" }, { vault, sink });
 		expect(result.parts.length).toBeGreaterThan(0);
@@ -527,7 +529,7 @@ describe("end-to-end export", () => {
 	});
 
 	it("supports cancellation", async () => {
-		const vault = buildVault();
+		const vault = buildFixtureVault();
 		const signal = {
 			cancelled: false,
 			throwIfCancelled() {
@@ -567,5 +569,90 @@ describe("transclusion helpers", () => {
 
 	it("normalizes lines consistently with the boilerplate hasher", () => {
 		expect(normalizeLine("  ## Tasks  2026 ")).toBe(normalizeLine("## Tasks 2026"));
+	});
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Packaging integrity                                                        */
+/* -------------------------------------------------------------------------- */
+
+describe("packaging integrity", () => {
+	it("never loses or duplicates content when splitting into parts", async () => {
+		const vault = buildFixtureVault();
+		const profile = testProfile({
+			packaging: {
+				...testProfile().packaging,
+				includeKnowledgeMap: false,
+				includeToc: false,
+				chunking: { mode: "maxTokens", maxTokens: 160, maxChars: 0, maxWords: 0, overlapTokens: 0, splitAtLevel: 2, repeatHeader: true },
+			} as never,
+		});
+		const result = await runExport({ profile }, { vault, sink: memorySink() });
+		expect(result.parts.length).toBeGreaterThan(1);
+		const joined = result.parts.map((p) => p.content).join("\n");
+		// Every note body must appear exactly once across the bundle.
+		for (const needle of [
+			"Alpha is about building a retrieval system",
+			"Beta stores documents and serves them back quickly",
+			"reviewed the alpha retrieval design",
+		]) {
+			expect(joined.split(needle).length - 1, needle).toBe(1);
+		}
+		// Every part stays inside the requested budget (with the documented slack).
+		for (const part of result.parts) expect(part.tokens).toBeLessThanOrEqual(160 * 1.35);
+	});
+
+	it("reports the space the part structure occupies", async () => {
+		const profile = testProfile({
+			packaging: {
+				...testProfile().packaging,
+				chunking: { mode: "maxTokens", maxTokens: 500, maxChars: 0, maxWords: 0, overlapTokens: 40, splitAtLevel: 2, repeatHeader: true },
+			} as never,
+		});
+		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink: memorySink() });
+		expect(result.chunking.partLimitTokens).toBe(500);
+		expect(result.chunking.overheadTokens).toBeGreaterThan(0);
+		expect(result.chunking.packLimitTokens).toBe(500 - result.chunking.overheadTokens);
+		expect(result.chunking.units).toBeGreaterThan(1);
+	});
+
+	it("keeps notes whose digits carry meaning and strips real templates", async () => {
+		const files = [
+			makeFile("a.md", "# Day 1\n\n## Template\n\n- fixed line\n\nScore: 12 points today\n\nUnique alpha sentence about retrieval.\n"),
+			makeFile("b.md", "# Day 2\n\n## Template\n\n- fixed line\n\nScore: 47 points today\n\nUnique beta sentence about storage.\n"),
+			makeFile("c.md", "# Day 3\n\n## Template\n\n- fixed line\n\nScore: 91 points today\n\nUnique gamma sentence about indexing.\n"),
+		];
+		const profile = testProfile({
+			packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never,
+		});
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		const content = result.parts.map((p) => p.content).join("\n");
+		expect(content).not.toContain("## Template");
+		expect(content).not.toContain("- fixed line");
+		// The varying numbers are content: all three scores survive.
+		expect(content).toContain("Score: 12 points today");
+		expect(content).toContain("Score: 47 points today");
+		expect(content).toContain("Score: 91 points today");
+	});
+
+	it("detects a note that is an extract of a longer one", async () => {
+		const long = [
+			"Retrieval augmented generation combines a search index with a language model.",
+			"The index returns candidate passages, the model writes an answer grounded in them.",
+			"Chunk size, overlap and metadata decide how well the grounding works in practice.",
+			"Evaluation should measure both answer quality and citation accuracy.",
+		].join(" ");
+		const files = [
+			makeFile("guide.md", `# Guide\n\n${long}\n\n## Appendix\n\nExtra material that only exists in the full guide and nowhere else at all.\n`),
+			makeFile("excerpt.md", `# Guide\n\n${long}\n`),
+		];
+		const profile = testProfile({ packaging: { ...testProfile().packaging, includeKnowledgeMap: false, includeToc: false } as never });
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink: memorySink() });
+		expect(result.stats.droppedAsDuplicate).toBe(1);
+		const content = result.parts.map((p) => p.content).join("\n");
+		// The duplicate is represented by a short pointer, not by its body.
+		expect(content.split("> `excerpt.md`").length - 1).toBe(1);
+		expect(content).toContain("Duplicate of S");
+		expect(content.split("Extra material that only exists in the full guide").length - 1).toBe(1);
 	});
 });

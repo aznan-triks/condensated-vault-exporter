@@ -11,7 +11,7 @@
  */
 
 import type { DedupeOptions, DocAnalysis } from "../types";
-import { compareSignatures } from "../markdown/analyzer";
+import { compareSignatures, type SignatureComparison } from "../markdown/analyzer";
 
 /** Rows per LSH band: 4 gives ~99 % recall above 0.85 similarity. */
 const BAND_ROWS = 4;
@@ -35,6 +35,34 @@ export interface DedupeOutcome {
 	/** True when the pair budget was exhausted (results may be partial). */
 	truncated: boolean;
 	comparisons: number;
+}
+
+/**
+ * Compares two notes: exactly when both kept their shingle hashes, with the
+ * MinHash estimate otherwise.
+ */
+function compareDocuments(a: DocAnalysis, b: DocAnalysis): SignatureComparison {
+	if (a.shingleHashes && b.shingleHashes && a.shingleHashes.length > 0 && b.shingleHashes.length > 0) {
+		const left = a.shingleHashes;
+		const right = b.shingleHashes;
+		let i = 0;
+		let j = 0;
+		let shared = 0;
+		while (i < left.length && j < right.length) {
+			if (left[i] === right[j]) {
+				shared++;
+				i++;
+				j++;
+			} else if (left[i] < right[j]) i++;
+			else j++;
+		}
+		const union = left.length + right.length - shared;
+		return {
+			jaccard: union > 0 ? shared / union : 0,
+			containment: Math.min(left.length, right.length) > 0 ? shared / Math.min(left.length, right.length) : 0,
+		};
+	}
+	return compareSignatures(a.shingles, b.shingles, a.shingleCount, b.shingleCount);
 }
 
 class UnionFind {
@@ -97,56 +125,100 @@ export function detectDuplicates(
 		}
 	}
 
-	// 2. LSH banding over MinHash signatures.
-	const bands = Math.floor(SIGNATURE_LENGTH / BAND_ROWS);
-	const buckets: Map<string, number[]>[] = new Array(bands);
-	for (let b = 0; b < bands; b++) buckets[b] = new Map();
+	// 2. Candidate pairs. Two channels feed the comparison step:
+	//    a. an inverted index over exact shingle hashes — this is what finds a
+	//       note that is an extract of a longer one, whatever the size ratio;
+	//    b. LSH banding over the MinHash signatures, which finds near-edits.
+	//    Both stay bounded: only eligible notes are indexed and the pair budget
+	//    is enforced before any comparison happens.
+	const candidates = new Map<number, Set<number>>();
+	const addCandidate = (a: number, c: number): boolean => {
+		if (a === c) return true;
+		const [x, y] = a < c ? [a, c] : [c, a];
+		const key = x * docs.length + y;
+		if (candidates.has(key)) return true;
+		if (candidates.size >= maxPairs) {
+			outcome.truncated = true;
+			return false;
+		}
+		candidates.set(key, new Set([x, y]));
+		return true;
+	};
 
+	const MIN_SHARED_SHINGLES = 8;
+	const inverted = new Map<number, number[]>();
 	for (const i of eligible) {
-		const sig = docs[i].shingles!;
-		if (uf.find(i) !== i) continue; // already an exact duplicate
-		for (let b = 0; b < bands; b++) {
-			const key = bucketKey(sig, b);
-			const list = buckets[b].get(key);
-			if (list) list.push(i);
-			else buckets[b].set(key, [i]);
+		const hashes = docs[i].shingleHashes;
+		if (!hashes) continue;
+		for (const hash of hashes) {
+			const list = inverted.get(hash);
+			if (list) {
+				if (list.length < 64) list.push(i);
+			} else inverted.set(hash, [i]);
 		}
 	}
+	const shared = new Map<number, number>();
+	for (const list of inverted.values()) {
+		if (list.length < 2 || list.length > 64) continue;
+		for (let x = 0; x < list.length; x++) {
+			for (let y = x + 1; y < list.length; y++) {
+				const a = list[x];
+				const c = list[y];
+				const key = Math.min(a, c) * docs.length + Math.max(a, c);
+				shared.set(key, (shared.get(key) ?? 0) + 1);
+			}
+		}
+	}
+	for (const [key, count] of shared) {
+		if (count < MIN_SHARED_SHINGLES) continue;
+		const a = Math.floor(key / docs.length);
+		const c = key % docs.length;
+		if (!addCandidate(a, c)) break;
+	}
 
-	outer: for (let b = 0; b < bands; b++) {
-		for (const list of buckets[b].values()) {
-			if (list.length < 2) continue;
-			for (let x = 0; x < list.length; x++) {
-				for (let y = x + 1; y < list.length; y++) {
-					if (outcome.comparisons >= maxPairs) {
-						outcome.truncated = true;
-						break outer;
+	if (!outcome.truncated) {
+		const bands = Math.floor(SIGNATURE_LENGTH / BAND_ROWS);
+		const buckets: Map<string, number[]>[] = new Array(bands);
+		for (let b = 0; b < bands; b++) buckets[b] = new Map();
+		for (const i of eligible) {
+			const sig = docs[i].shingles!;
+			if (uf.find(i) !== i) continue; // already an exact duplicate
+			for (let b = 0; b < bands; b++) {
+				const key = bucketKey(sig, b);
+				const list = buckets[b].get(key);
+				if (list) list.push(i);
+				else buckets[b].set(key, [i]);
+			}
+		}
+		outer: for (let b = 0; b < bands; b++) {
+			for (const list of buckets[b].values()) {
+				if (list.length < 2) continue;
+				for (let x = 0; x < list.length; x++) {
+					for (let y = x + 1; y < list.length; y++) {
+						if (!addCandidate(list[x], list[y])) break outer;
 					}
-					const a = list[x];
-					const c = list[y];
-					outcome.comparisons++;
-					const comparison = compareSignatures(
-						docs[a].shingles,
-						docs[c].shingles,
-						docs[a].shingleCount,
-						docs[c].shingleCount,
-					);
-					const similarity = comparison.jaccard;
-					const isNear = similarity >= options.threshold;
-					const isSubset =
-						!isNear &&
-						similarity >= options.threshold * 0.6 &&
-						comparison.containment >= options.containmentThreshold &&
-						Math.min(docs[a].shingleCount, docs[c].shingleCount) >= 12;
-					if (!isNear && !isSubset) continue;
-					uf.union(a, c);
-					const key = pairKey(a, c);
-					const score = isSubset ? Math.max(similarity, comparison.containment * 0.95) : similarity;
-					if ((bestSimilarity.get(key) ?? 0) < score) bestSimilarity.set(key, score);
-					if (isSubset) subsetPairs.add(key);
 				}
 			}
 		}
+	}
+
+	// 3. Verify each candidate: exact when both notes kept their shingles.
+	for (const [a, c] of candidates.values()) {
+		outcome.comparisons++;
+		const comparison = compareDocuments(docs[a], docs[c]);
+		const similarity = comparison.jaccard;
+		const isNear = similarity >= options.threshold;
+		const isSubset =
+			!isNear &&
+			similarity >= options.threshold * 0.55 &&
+			comparison.containment >= options.containmentThreshold &&
+			Math.min(docs[a].shingleCount, docs[c].shingleCount) >= MIN_SHARED_SHINGLES;
+		if (!isNear && !isSubset) continue;
+		uf.union(a, c);
+		const key = pairKey(a, c);
+		const score = isSubset ? Math.min(1, Math.max(similarity, comparison.containment * 0.97)) : similarity;
+		if ((bestSimilarity.get(key) ?? 0) < score) bestSimilarity.set(key, score);
+		if (isSubset) subsetPairs.add(key);
 	}
 
 	// 3. Build clusters and pick representatives.
