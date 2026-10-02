@@ -6,9 +6,10 @@
 
 import { App, Modal, Notice, TFile, normalizePath } from "obsidian";
 import { ExportAbortedError, type ExportProfile, type ExportResult, type SourceFile } from "../core/types";
-import { runExport, type ExportDeps, type PreviousManifestLike } from "../core/pipeline";
+import { runExport, selectCandidates, type ExportDeps, type PreviousManifestLike } from "../core/pipeline";
 import { AnalysisCache } from "../core/state/cache";
 import { createState, type ExportState } from "../core/state/manifest";
+import { computeProfileStatus, type ProfileStatus } from "../core/state/status";
 import { formatCount, hashString } from "../core/util";
 import { ExportProgress } from "./progress";
 import { FileSystemSinkPort, ObsidianVaultPort, VaultSinkPort } from "./vaultPort";
@@ -363,6 +364,25 @@ export class ExportRunner {
 		return { notes: files.length, bytes };
 	}
 
+	/**
+	 * What each profile last produced, and what the vault has done since.
+	 * One file listing for all profiles; the rest comes from the sidecars and
+	 * the plugin state, so this stays instant on a large vault.
+	 */
+	async collectStatus(): Promise<ProfileStatus[]> {
+		const settings = this.getSettings();
+		const all = await this.vaultPort.listFiles();
+		const statuses: ProfileStatus[] = [];
+		for (const profile of settings.profiles) {
+			const selection = selectCandidates(all, profile, maxFileBytes(profile), this.ignoredPatterns());
+			const manifest = await this.readManifest(profile.id).catch(() => null);
+			statuses.push(
+				computeProfileStatus(profile, manifest, settings.state, selection.files),
+			);
+		}
+		return statuses;
+	}
+
 	async listFolders(): Promise<string[]> {
 		const files: SourceFile[] = await this.vaultPort.listFiles();
 		const folders = new Set<string>();
@@ -376,6 +396,12 @@ function isCancellation(error: unknown): boolean {
 		return error.name === "ExportCancelledError" || /cancel/i.test(error.message);
 	}
 	return false;
+}
+
+/** The in-scope file ceiling a profile implies (mirrors the pipeline default). */
+function maxFileBytes(profile: ExportProfile): number {
+	const megabytes = profile.filters.maxFileMegabytes;
+	return megabytes > 0 ? megabytes * 1024 * 1024 : 8 * 1024 * 1024;
 }
 
 /** Asks the user before overwriting existing bundle parts. */

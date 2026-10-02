@@ -12,7 +12,7 @@ import { basename } from "./core/util";
 import { normalizeSettings, compactSettings, type PluginSettings } from "./obsidian/settings";
 import { ExportSettingsTab } from "./obsidian/settingsTab";
 import { ExportRunner } from "./obsidian/runner";
-import { ExportDialog, PreviewModal, openFirstResult } from "./obsidian/modals";
+import { ExportDialog, PreviewModal, StatusModal, openFirstResult } from "./obsidian/modals";
 
 export default class CondensatedVaultExporter extends Plugin {
 	settings!: PluginSettings;
@@ -80,6 +80,11 @@ export default class CondensatedVaultExporter extends Plugin {
 			id: "export-all-profiles",
 			name: "Export every profile",
 			callback: () => void this.exportAll(),
+		});
+		this.addCommand({
+			id: "export-status",
+			name: "Show export status",
+			callback: () => this.openStatus(),
 		});
 		this.addCommand({
 			id: "copy-instructions",
@@ -217,6 +222,19 @@ export default class CondensatedVaultExporter extends Plugin {
 	 * on the clipboard — the one artefact a notebook user needs before adding
 	 * sources.
 	 */
+	/** "Which of my bundles is out of date?" — one screen, no export run. */
+	openStatus(): void {
+		const modal = new StatusModal(
+			this.app,
+			() => this.runner.collectStatus(),
+			(profileId) => {
+				const profile = this.settings.profiles.find((p) => p.id === profileId);
+				if (profile) void this.execute(profile, "preview");
+			},
+		);
+		modal.open();
+	}
+
 	async copyInstructions(): Promise<void> {
 		const profile = this.activeProfile();
 		if (!profile) {

@@ -97,6 +97,20 @@ rather than silently dropped, the same data is exposed as `links.to` /
 `links.from` arrays in JSON and JSONL, and the export report ends with a
 "How the notes hang together" section listing hubs and orphans.
 
+### Is my bundle still current?
+
+**Show export status** (command palette) opens one table for every profile:
+
+| Profile | Last export | Notes | Last bundle | Since then |
+| --- | --- | --- | --- | --- |
+| NotebookLM | 2 h ago | 812 of 815 | 2 part(s) · ~412k tokens | 6 changed, 1 gone |
+| RAG chunks | never | 815 | 1.4 MB of Markdown | not tracked |
+
+It costs one file listing — the comparison is between the vault's size and
+mtime and what the sidecar recorded at export time — and each row previews
+its own profile, so "is this still worth uploading?" takes one click to
+answer and one more to fix.
+
 ### Export what the vault knows about a topic
 
 Folders and tags assume the vault is already organised. A topic filter needs

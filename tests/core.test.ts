@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { computeProfileStatus, describeChanges, isStale } from "../src/core/state/status";
+import { createState } from "../src/core/state/manifest";
+import { createDefaultProfiles } from "../src/core/profiles";
 import { groupSecretFindings, scanForSecrets } from "../src/core/intel/safety";
 import { matchGlob, matchAny, isValidGlob } from "../src/core/glob";
 import { parseFrontmatter, stringifyFrontmatter, asStringArray, tagMatches } from "../src/core/frontmatter";
@@ -365,5 +368,68 @@ describe("secret scan", () => {
 		expect(groupSecretFindings(outcome.findings)).toEqual([
 			{ label: "GitHub token", count: 5, sample: expect.any(String), part: 1 },
 		]);
+	});
+});
+
+describe("profile status", () => {
+	const files = [
+		{ path: "a.md", name: "a.md", folder: "", ext: "md", size: 100, mtime: 1000, ctime: 0 },
+		{ path: "b.md", name: "b.md", folder: "", ext: "md", size: 200, mtime: 2000, ctime: 0 },
+	];
+	const profile = { ...createDefaultProfiles()[0], id: "p", name: "Profile" };
+	const state = () => {
+		const value = createState();
+		value.profiles["p"] = {
+			"a.md": { hash: "h", mtime: 1000, size: 100, words: 10, tokens: 12, lastExportedAt: 5000 },
+			"b.md": { hash: "h", mtime: 999, size: 200, words: 20, tokens: 24, lastExportedAt: 5000 },
+			"gone.md": { hash: "h", mtime: 1, size: 1, words: 1, tokens: 1, lastExportedAt: 5000 },
+		};
+		return value;
+	};
+
+	it("counts new, changed, gone and unchanged notes", () => {
+		const status = computeProfileStatus(profile, null, state(), files);
+		expect(status.notes).toBe(2);
+		expect(status.unchanged).toBe(1);
+		expect(status.changed).toBe(1);
+		expect(status.removed).toBe(1);
+		expect(status.exported).toBe(3);
+		expect(status.lastExportAt).toBe(5000);
+		expect(isStale(status)).toBe(true);
+		expect(describeChanges(status)).toBe("1 changed, 1 gone");
+	});
+
+	it("prefers the manifest totals for size and parts", () => {
+		const status = computeProfileStatus(
+			profile,
+			{
+				generatedAt: "2026-01-01T00:00:00.000Z",
+				stats: { kept: 12, words: 900, tokens: 1200 },
+				parts: [
+					{ index: 0, path: "a.md" },
+					{ index: 1, path: "b.md" },
+					{ index: 2, path: "c.md" },
+				],
+			},
+			createState(),
+			files,
+		);
+		expect(status.parts).toBe(3);
+		expect(status.tokens).toBe(1200);
+		expect(status.exported).toBe(12);
+		expect(status.tracked).toBe(true);
+		expect(status.added).toBe(2);
+		expect(describeChanges(status)).toBe("2 new");
+	});
+
+	it("says nothing changed when the vault matches the state", () => {
+		const status = computeProfileStatus(profile, null, state(), [files[0]]);
+		expect(status.added).toBe(0);
+		expect(isStale(status)).toBe(true); // b.md and gone.md are missing
+		const clean = createState();
+		clean.profiles["p"] = { "a.md": { hash: "h", mtime: 1000, size: 100, words: 1, tokens: 1, lastExportedAt: 5000 } };
+		const settled = computeProfileStatus(profile, null, clean, [files[0]]);
+		expect(isStale(settled)).toBe(false);
+		expect(describeChanges(settled)).toBe("up to date");
 	});
 });

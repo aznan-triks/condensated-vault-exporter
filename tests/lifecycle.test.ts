@@ -728,3 +728,44 @@ describe("neighbourhood export", () => {
 		expect(content).not.toContain("Gratitude");
 	});
 });
+
+describe("export status", () => {
+	it("lists every profile with what its last export produced", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+		plugin.settings.confirmOverwrite = false;
+		plugin.settings.openAfterExport = false;
+		plugin.settings.profiles[0].output.openAfterExport = false;
+		await plugin.saveSettings();
+
+		// One real export, so the sidecar and the state have something to say.
+		await plugin.runner.run(plugin.settings.profiles[0], {});
+
+		const statuses = await plugin.runner.collectStatus();
+		const first = statuses.find((status) => status.profileId === plugin.settings.profiles[0].id)!;
+
+		expect(first.lastExportAt).toBeGreaterThan(0);
+		expect(first.exported).toBeGreaterThan(0);
+		expect(first.notes).toBeGreaterThanOrEqual(first.exported);
+		expect(first.parts).toBeGreaterThan(0);
+		// Every other profile has never run.
+		const other = statuses.find((status) => status.lastExportAt === 0)!;
+		expect(other).toBeTruthy();
+
+		const { StatusModal } = await import("../src/obsidian/modals");
+		const modal = new StatusModal(
+			fake.app as never,
+			() => plugin.runner.collectStatus(),
+			() => undefined,
+		);
+		modal.open();
+		// The table is filled after an async scan of the sidecars.
+		for (let attempt = 0; attempt < 20 && modal.contentEl.querySelectorAll("tr").length <= 2; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		expect(modal.contentEl.querySelectorAll("tr").length).toBeGreaterThan(2);
+		expect(modal.contentEl.textContent).toContain("NotebookLM");
+		modal.close();
+	});
+});

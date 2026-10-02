@@ -140,3 +140,32 @@
 	color: var(--text-muted);
 	padding: 2px 0;
 }
+
+/* Status table -------------------------------------------------------------- */
+.cve-status-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--font-ui-small);
+}
+
+.cve-status-table th {
+	text-align: left;
+	font-weight: var(--font-medium);
+	color: var(--text-muted);
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 4px 8px 4px 0;
+}
+
+.cve-status-table td {
+	padding: 4px 8px 4px 0;
+	border-bottom: 1px solid var(--background-modifier-border-hover);
+	vertical-align: middle;
+}
+
+.cve-status-table tr:last-child td {
+	border-bottom: none;
+}
+
+.cve-status-stale {
+	color: var(--text-warning);
+}

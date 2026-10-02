@@ -40,6 +40,10 @@ First complete release.
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since
   Obsidian's `createFolder` is not recursive.
+- "Show export status" command: one table listing every profile with its last
+  export (parts, tokens, when), the notes in scope now and how many changed
+  since — computed from the sidecars and the recorded state, so it costs a
+  single file listing. Each row previews its profile in one click.
 - Topic focus: a profile (or the export dialog) can take free text — “retrieval
   evaluation”, “kubernetes upgrades” — and export only the notes that match it
   best, ranked with the corpus TF-IDF plus title, tag, path and heading

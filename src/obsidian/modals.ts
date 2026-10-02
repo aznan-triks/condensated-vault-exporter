@@ -11,6 +11,7 @@
 import { App, Component, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
 import type { ExportProfile, ExportResult } from "../core/types";
 import { describeProfile } from "../core/profiles";
+import { describeChanges, isStale, type ProfileStatus } from "../core/state/status";
 import { formatBytes, formatCount } from "../core/util";
 import type { ExportRunner } from "./runner";
 import type { PluginSettings } from "./settings";
@@ -463,6 +464,112 @@ export class PreviewModal extends Modal {
 /* -------------------------------------------------------------------------- */
 /*  Small confirm dialog                                                       */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * One row per profile: what it last wrote, and what the vault has done since.
+ * This is the screen that answers "which of my bundles is out of date?" without
+ * running anything — and every row previews its own profile.
+ */
+export class StatusModal extends Modal {
+	private bodyEl: HTMLElement | null = null;
+	private buttonsEl: HTMLElement | null = null;
+	/** The scan is async: the modal may be gone by the time it answers. */
+	private closed = false;
+
+	constructor(
+		app: App,
+		private readonly collect: () => Promise<ProfileStatus[]>,
+		private readonly onPreview: (profileId: string) => void,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.addClass("cve-dialog");
+		contentEl.createEl("h2", { text: "Export status" });
+		this.bodyEl = contentEl.createDiv({ cls: "cve-status-body" });
+		this.buttonsEl = contentEl.createDiv({ cls: "cve-dialog-buttons" });
+		const refresh = this.buttonsEl.createEl("button", { text: "Refresh" });
+		refresh.onclick = () => void this.render();
+		const close = this.buttonsEl.createEl("button", { text: "Close" });
+		close.onclick = () => this.close();
+		void this.render();
+	}
+
+	private async render(): Promise<void> {
+		if (!this.bodyEl) return;
+		this.bodyEl.empty();
+		this.bodyEl.createEl("p", { cls: "cve-hint", text: "Reading the export sidecars…" });
+		let statuses: ProfileStatus[];
+		try {
+			statuses = await this.collect();
+		} catch {
+			this.bodyEl.setText("Could not read the export status.");
+			return;
+		}
+		if (this.closed || !this.bodyEl) return;
+		this.bodyEl.empty();
+		if (statuses.length === 0) {
+			this.bodyEl.createEl("p", { text: "No profiles configured." });
+			return;
+		}
+		const table = this.bodyEl.createEl("table", { cls: "cve-status-table" });
+		const head = table.createEl("tr");
+		for (const label of ["Profile", "Last export", "Notes", "Last bundle", "Since then", ""]) {
+			head.createEl("th", { text: label });
+		}
+		for (const status of statuses) {
+			const row = table.createEl("tr");
+			row.createEl("td", { text: status.profileName });
+			row.createEl("td", { text: relativeTime(status.lastExportAt) });
+			row.createEl("td", {
+				text:
+					status.exported > 0
+						? `${formatCount(status.exported)} of ${formatCount(status.notes)}`
+						: formatCount(status.notes),
+			});
+			row.createEl("td", {
+				text:
+					status.parts > 0
+						? `${formatCount(status.parts)} part(s) · ~${formatCount(status.tokens)} tokens`
+						: `${formatBytes(status.bytes)} of Markdown`,
+			});
+			const changes = row.createEl("td", { text: status.tracked ? describeChanges(status) : "not tracked" });
+			if (isStale(status)) changes.addClass("cve-status-stale");
+			const actions = row.createEl("td");
+			const preview = actions.createEl("button", { text: "Preview" });
+			preview.setAttribute("aria-label", `Preview what “${status.profileName}” would write now`);
+			preview.onclick = () => {
+				this.close();
+				this.onPreview(status.profileId);
+			};
+		}
+		this.bodyEl.createEl("p", {
+			cls: "cve-hint",
+			text: "Changes compare the vault with the state recorded by the last export of that profile.",
+		});
+	}
+
+	onClose(): void {
+		this.closed = true;
+		this.contentEl.empty();
+	}
+}
+
+/** Short relative time, stable enough for a status table. */
+function relativeTime(at: number): string {
+	if (!at || !Number.isFinite(at)) return "never";
+	const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+	if (seconds < 90) return "just now";
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 90) return `${minutes} min ago`;
+	const hours = Math.round(minutes / 60);
+	if (hours < 36) return `${hours} h ago`;
+	const days = Math.round(hours / 24);
+	if (days < 30) return `${days} day(s) ago`;
+	return new Date(at).toISOString().slice(0, 10);
+}
 
 export class ConfirmModal extends Modal {
 	constructor(

@@ -69,6 +69,10 @@ import type { AnalysisCache } from "./state/cache";
 
 export interface PreviousManifestLike {
 	hashes: Record<string, string>;
+	/** Written by the sidecar; absent in manifests from older versions. */
+	generatedAt?: string;
+	stats?: { kept?: number; words?: number; tokens?: number };
+	parts?: { index: number; path: string }[];
 }
 
 export interface ExportDeps {
