@@ -434,6 +434,14 @@ export function normalizeProfile(raw: Partial<ExportProfile>): ExportProfile {
 }
 
 /** A one-line summary of a profile, shown in the profile list. */
+const FORMAT_LABELS: Record<ExportProfile["packaging"]["format"], string> = {
+	markdown: "Markdown",
+	plain: "plain text",
+	json: "JSON",
+	jsonl: "JSON Lines",
+	xml: "XML",
+};
+
 export function describeProfile(profile: ExportProfile): string {
 	const targets = profile.targets.length === 0 ? "the whole vault" : profile.targets.join(", ");
 	const parts: string[] = [targets];
@@ -457,7 +465,7 @@ export function describeProfile(profile: ExportProfile): string {
 			parts.push(`≤${Math.round(profile.packaging.chunking.maxChars / 1000)}k chars/part`);
 			break;
 	}
-	parts.push(profile.packaging.format);
+	parts.push(FORMAT_LABELS[profile.packaging.format] ?? profile.packaging.format);
 	if (profile.condensation.summarize.enabled) parts.push("summaries");
 	if (profile.condensation.dedupe.enabled) parts.push("dedupe");
 	if (profile.transform.embeds === "transclude") parts.push("transclusions");
