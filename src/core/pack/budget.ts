@@ -47,12 +47,33 @@ export interface BudgetOptions {
 	maxTokens: number;
 	/** 0 = unlimited. */
 	maxWords: number;
-	/** Tokens consumed by headers, TOC and knowledge map. */
+	/** Tokens consumed once: headers, the knowledge map, the part notice. */
 	overheadTokens: number;
+	/**
+	 * Tokens each *included* note adds to the preamble (its contents line and
+	 * citation markers). Charging this per note — instead of guessing from the
+	 * corpus size — is what stops a large vault from budgeting itself out of
+	 * existence: the old estimate charged a contents line for every candidate
+	 * note, so a 5 000-note vault reserved 150 k tokens of overhead and
+	 * dropped all but one note.
+	 */
+	perNoteOverheadTokens: number;
+	/** How many notes contribute `perNoteOverheadTokens` (the contents cap; 0 = all). */
+	perNoteOverheadCap: number;
+	/**
+	 * Tokens every included note adds no matter what: its `## Title`, source
+	 * line and divider, its citation marker, its entry in the embedded
+	 * manifest. Unlike the contents line this is never capped.
+	 */
+	perIncludedTokens: number;
 	/** Never shrink a note below this. */
 	minDocTokens: number;
-	/** Tokens kept when a note is summarized (0 = use the summary as-is). */
+	/** Tokens kept when a note is summarized (0 = derive from `summarizeRatio`). */
 	summaryTokens: number;
+	/** Share of a note a summary keeps, when `summaryTokens` is 0. */
+	summarizeRatio: number;
+	/** Below this word count the summarizer does not apply, so the note costs full size. */
+	summarizeMinWords: number;
 	allowSummarize: boolean;
 	allowDrop: boolean;
 	allowTruncate: boolean;
@@ -113,12 +134,36 @@ function folderWeightOf(path: string, options: ScoreOptions): number {
 }
 
 /**
+ * What the budget needs to know about one candidate: the realized size of the
+ * content that will be written, and a value signal to rank drops by.
+ *
+ * Preparing the notes before budgeting (pipeline order: read → transform →
+ * budget → render) is what makes these numbers real. Budgeting on raw note
+ * sizes instead silently wasted half the budget on profiles whose transforms
+ * shrink notes, and could overshoot the destination on profiles that grow them.
+ */
+export interface BudgetItem {
+	path: string;
+	/** Realized token count of the prepared content. */
+	tokens: number;
+	/** Realized word count; a summary is only applied above the summarizer's floor. */
+	words: number;
+	/** Value signal from the analysis. */
+	signal: number;
+}
+
+/** Adapts analyzed documents to budget items (raw, pre-transform sizes). */
+export function budgetItemsFromDocs(docs: DocAnalysis[]): BudgetItem[] {
+	return docs.map((doc) => ({ path: doc.file.path, tokens: doc.stats.tokens, words: doc.stats.words, signal: doc.signal }));
+}
+
+/**
  * Allocates the token budget across the (already ordered) documents.
  *
  * The order of `docs` is preserved: the user's ordering choice is respected,
  * only *what fits* is decided here.
  */
-export function allocateBudget(docs: DocAnalysis[], options: BudgetOptions): BudgetOutcome {
+export function allocateBudget(docs: BudgetItem[], options: BudgetOptions): BudgetOutcome {
 	const decisions = new Map<string, BudgetDecision>();
 	const dropped: string[] = [];
 	const summarized: string[] = [];
@@ -126,81 +171,88 @@ export function allocateBudget(docs: DocAnalysis[], options: BudgetOptions): Bud
 
 	const budget = options.maxTokens > 0 ? options.maxTokens : Number.POSITIVE_INFINITY;
 	const available = Math.max(0, budget - options.overheadTokens);
+	const perNote = Math.max(0, options.perNoteOverheadTokens);
+	const cap = options.perNoteOverheadCap > 0 ? options.perNoteOverheadCap : Number.POSITIVE_INFINITY;
+	/** Preamble and framing cost of a corpus of `count` notes. */
+	const overheadOf = (count: number): number =>
+		perNote * Math.min(count, cap) + Math.max(0, options.perIncludedTokens) * count;
 	let used = 0;
 
-	const fullTotal = docs.reduce((acc, d) => acc + d.stats.tokens, 0);
-	if (fullTotal <= available) {
+	const fullTotal = docs.reduce((acc, d) => acc + d.tokens, 0);
+	if (fullTotal + overheadOf(docs.length) <= available) {
 		for (const doc of docs) {
-			decisions.set(doc.file.path, { path: doc.file.path, action: "full", allowance: doc.stats.tokens, reason: "fits" });
+			decisions.set(doc.path, { path: doc.path, action: "full", allowance: doc.tokens, reason: "fits" });
 		}
-		return { decisions, totalTokens: fullTotal, dropped, summarized, truncated };
+		return { decisions, totalTokens: fullTotal + overheadOf(docs.length), dropped, summarized, truncated };
 	}
 
 	// -- Step 2: try summaries -------------------------------------------------
 	if (options.allowSummarize) {
 		const summaryTotal = docs.reduce((acc, d) => acc + estimateSummaryTokens(d, options), 0);
-		if (summaryTotal <= available) {
+		if (summaryTotal + overheadOf(docs.length) <= available) {
 			for (const doc of docs) {
 				const allowance = estimateSummaryTokens(doc, options);
-				decisions.set(doc.file.path, {
-					path: doc.file.path,
+				decisions.set(doc.path, {
+					path: doc.path,
 					action: "summarize",
 					allowance,
 					reason: "budget: summarized to fit",
 				});
-				summarized.push(doc.file.path);
+				summarized.push(doc.path);
 				used += allowance;
 			}
-			return { decisions, totalTokens: used, dropped, summarized, truncated };
+			return { decisions, totalTokens: used + overheadOf(docs.length), dropped, summarized, truncated };
 		}
 	}
 
 	// -- Step 3: drop the least valuable notes --------------------------------
 	const order = [...docs];
 	if (options.allowDrop) {
-		const keep = new Set(order.map((d) => d.file.path));
+		const keep = new Set(order.map((d) => d.path));
 		// Recompute with progressively fewer documents, dropping the smallest
 		// "value per token" first (cheap approximation of a knapsack).
 		const ranked = [...order].sort((a, b) => valuePerToken(a, options) - valuePerToken(b, options));
-		let current = order.reduce((acc, d) => acc + perDocCost(d, options), 0);
+		let current = order.reduce((acc, d) => acc + perDocCost(d, options), 0) + overheadOf(order.length);
 		for (const candidate of ranked) {
 			if (current <= available) break;
 			if (keep.size <= 1) break;
-			keep.delete(candidate.file.path);
-			dropped.push(candidate.file.path);
-			current -= perDocCost(candidate, options);
+			keep.delete(candidate.path);
+			dropped.push(candidate.path);
+			// Dropping a note also removes its contents line: freeing both is
+			// what makes the ladder converge instead of overshooting.
+			current -= perDocCost(candidate, options) + (overheadOf(keep.size + 1) - overheadOf(keep.size));
 		}
 		for (const doc of order) {
-			if (!keep.has(doc.file.path)) {
-				decisions.set(doc.file.path, { path: doc.file.path, action: "drop", allowance: 0, reason: "budget: lowest value per token" });
+			if (!keep.has(doc.path)) {
+				decisions.set(doc.path, { path: doc.path, action: "drop", allowance: 0, reason: "budget: lowest value per token" });
 				continue;
 			}
 			const cost = perDocCost(doc, options);
-			const action: BudgetAction = cost < doc.stats.tokens ? "summarize" : "full";
-			if (action === "summarize") summarized.push(doc.file.path);
-			decisions.set(doc.file.path, {
-				path: doc.file.path,
+			const action: BudgetAction = cost < doc.tokens ? "summarize" : "full";
+			if (action === "summarize") summarized.push(doc.path);
+			decisions.set(doc.path, {
+				path: doc.path,
 				action,
-				allowance: action === "summarize" ? cost : doc.stats.tokens,
+				allowance: action === "summarize" ? cost : doc.tokens,
 				reason: action === "summarize" ? "budget: summarized to fit" : "fits",
 			});
-			used += action === "summarize" ? cost : doc.stats.tokens;
+			used += action === "summarize" ? cost : doc.tokens;
 		}
 	}
 
 	// -- Step 4: a single document may still overflow --------------------------
 	const remaining = docs.filter((d) => {
-		const decision = decisions.get(d.file.path);
+		const decision = decisions.get(d.path);
 		return decision !== undefined && decision.action !== "drop";
 	});
-	const projected = remaining.reduce((acc, d) => acc + (decisions.get(d.file.path)?.allowance ?? 0), 0);
+	const projected = remaining.reduce((acc, d) => acc + (decisions.get(d.path)?.allowance ?? 0), 0);
 	if (projected > available && options.allowTruncate && remaining.length > 0) {
 		const overflow = projected - available;
-		const bySize = [...remaining].sort((a, b) => b.stats.tokens - a.stats.tokens);
+		const bySize = [...remaining].sort((a, b) => b.tokens - a.tokens);
 		let toTrim = overflow;
 		for (const doc of bySize) {
 			if (toTrim <= 0) break;
-			const decision = decisions.get(doc.file.path)!;
+			const decision = decisions.get(doc.path)!;
 			const currentAllowance = decision.allowance;
 			const minimum = Math.min(options.minDocTokens, Math.max(1, Math.floor(currentAllowance * 0.25)));
 			const reducible = Math.max(0, currentAllowance - minimum);
@@ -209,35 +261,39 @@ export function allocateBudget(docs: DocAnalysis[], options: BudgetOptions): Bud
 			decision.allowance = currentAllowance - cut;
 			decision.action = "truncate";
 			decision.reason = "budget: truncated";
-			if (!truncated.includes(doc.file.path)) truncated.push(doc.file.path);
+			if (!truncated.includes(doc.path)) truncated.push(doc.path);
 			toTrim -= cut;
 		}
 	}
 
 	used = 0;
+	let included = 0;
 	for (const doc of docs) {
-		const decision = decisions.get(doc.file.path);
+		const decision = decisions.get(doc.path);
 		if (!decision || decision.action === "drop") continue;
 		used += decision.allowance;
+		included++;
 	}
-	return { decisions, totalTokens: used, dropped, summarized, truncated };
+	return { decisions, totalTokens: used + overheadOf(included), dropped, summarized, truncated };
 }
 
-function perDocCost(doc: DocAnalysis, options: BudgetOptions): number {
-	if (!options.allowSummarize) return doc.stats.tokens;
+function perDocCost(doc: BudgetItem, options: BudgetOptions): number {
+	if (!options.allowSummarize) return doc.tokens;
 	return estimateSummaryTokens(doc, options);
 }
 
-function estimateSummaryTokens(doc: DocAnalysis, options: BudgetOptions): number {
-	if (options.summaryTokens > 0) return Math.min(doc.stats.tokens, options.summaryTokens);
-	// Rough estimate: ~35 % of the note, never below the minimum.
-	return Math.max(options.minDocTokens, Math.round(doc.stats.tokens * 0.35));
+function estimateSummaryTokens(doc: BudgetItem, options: BudgetOptions): number {
+	if (options.summaryTokens > 0) return Math.min(doc.tokens, options.summaryTokens);
+	// The summarizer leaves short notes alone (`minWords`): those cost full size,
+	// and charging them a fraction of it is how a budget silently overfills.
+	if (options.summarizeMinWords > 0 && doc.words < options.summarizeMinWords) return doc.tokens;
+	const ratio = options.summarizeRatio > 0 ? options.summarizeRatio : 0.35;
+	return Math.max(options.minDocTokens, Math.round(doc.tokens * ratio));
 }
 
 /** Value density used to decide which notes survive a budget cut. */
-function valuePerToken(doc: DocAnalysis, options: BudgetOptions): number {
-	const value = doc.signal * 1.0 + Math.log10(doc.stats.words + 10) * 0.3;
-	void options;
+function valuePerToken(doc: BudgetItem, options: BudgetOptions): number {
+	const value = doc.signal * 1.0 + Math.log10(doc.words + 10) * 0.3;
 	return value / Math.max(1, perDocCost(doc, options));
 }
 

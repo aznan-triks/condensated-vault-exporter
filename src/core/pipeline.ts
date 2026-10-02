@@ -237,16 +237,101 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	// ---------------------------------------------------------------- ordering
 	const ordered = orderSelection(selected, profile, graph, related);
 
+	// ---------------------------------------------------------------- prepare
+	// Candidates are read and transformed *before* the budget is decided, so
+	// that it works from the sizes that will really be written. Transformations
+	// move those sizes a lot (Chat context strips boilerplate and merges
+	// duplicates; transclusion inlining grows notes), and budgeting on raw note
+	// sizes both wasted half the budget and could overshoot a destination.
+	const resolver = createResolver(deps, pathIndex, allFiles);
+	const kbContext = {
+		hashes: boilerplate.hashes,
+		exactHashes: boilerplate.exactHashes,
+		options: profile.condensation.boilerplate,
+	};
+	const transformStats: TransformStats[] = [];
+	let done = 0;
+	let unreadable = 0;
+
+	const prepared = await mapLimit(ordered, 4, async (entry): Promise<PreparedNote | null> => {
+		check();
+		const doc = entry.doc;
+		let raw: string;
+		try {
+			raw = await deps.vault.read(doc.file.path);
+		} catch (error) {
+			warnings.push(`Could not read ${doc.file.path} for rendering: ${describeError(error)}`);
+			unreadable++;
+			done++;
+			return null;
+		}
+		const transformed = await transformDocument(raw, profile.transform, {
+			format: profile.packaging.format,
+			path: doc.file.path,
+			title: doc.title,
+			resolver,
+			transclusion: {
+				depth: profile.transform.transcludeDepth,
+				maxChars: profile.transform.transcludeMaxChars,
+				inline: profile.condensation.inlineTransclusions,
+			},
+			boilerplate: kbContext,
+		});
+		transformStats.push(transformed.stats);
+		warnings.push(...transformed.warnings.slice(0, 5));
+
+		let body = transformed.text;
+		// Merge duplicate content when the profile asks for it (the duplicates
+		// are not part of `ordered`, so we append their unique lines here).
+		if (profile.condensation.dedupe.enabled && profile.condensation.dedupe.mode === "merge") {
+			const group = dedupe.groups.find((g) => g.representative === doc.file.path);
+			if (group) {
+				const merged = await mergeDuplicates(body, group.duplicates, deps);
+				if (merged.addedLines > 0) {
+					body = `${body}\n\n<!-- merged from duplicates -->\n${merged.text}`;
+					warnings.push(
+						`Merged ${merged.addedLines} unique line(s) from ${group.duplicates.length} duplicate note(s) into ${doc.file.path}.`,
+					);
+				}
+			}
+		}
+
+		done++;
+		progress({
+			phase: "condense",
+			progress: 0.1 + 0.7 * (done / Math.max(1, ordered.length)),
+			message: `Condensing notes… ${done}/${ordered.length}`,
+			current: done,
+			total: ordered.length,
+		});
+		return { entry, body, transformed, tokens: estimateTokens(body).tokens, words: countWords(body) };
+	});
+	const condenseable = prepared.filter((note): note is PreparedNote => note !== null);
+	const preparedByPath = new Map(condenseable.map((note) => [note.entry.doc.file.path, note]));
+
 	// ---------------------------------------------------------------- budget
-	const overheadTokens = estimateOverhead(profile, ordered.length);
+	const overhead = estimateOverhead(
+		profile,
+		condenseable.map((note) => note.entry.doc),
+	);
 	const budget = allocateBudget(
-		ordered.map((entry) => entry.doc),
+		condenseable.map((note) => ({
+			path: note.entry.doc.file.path,
+			tokens: note.tokens,
+			words: note.words,
+			signal: note.entry.doc.signal,
+		})),
 		{
 			maxTokens: budgetTokensFromProfile(profile),
 			maxWords: profile.limits.maxTotalWords,
-			overheadTokens,
-			minDocTokens: 300,
+			overheadTokens: overhead.base,
+			perNoteOverheadTokens: overhead.perNote,
+			perNoteOverheadCap: profile.packaging.tocMaxEntries,
+			perIncludedTokens: overhead.perIncluded,
+			minDocTokens: 60,
 			summaryTokens: 0,
+			summarizeRatio: profile.condensation.summarize.ratio,
+			summarizeMinWords: profile.condensation.summarize.minWords,
 			allowSummarize: profile.condensation.summarize.enabled,
 			allowDrop: true,
 			allowTruncate: true,
@@ -267,6 +352,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			cappedByFilter.push(entry.doc.file.path);
 			continue;
 		}
+		if (!preparedByPath.has(entry.doc.file.path)) continue; // unreadable
 		const decision = budget.decisions.get(entry.doc.file.path) ?? entry.decision;
 		if (decision.action === "drop") continue;
 		included.push({ ...entry, decision });
@@ -286,61 +372,16 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	const citationByPath = new Map<string, string>(included.map((e) => [e.doc.file.path, e.citationId]));
 	const analysisByPath = new Map<string, DocAnalysis>(analyses.map((doc) => [doc.file.path, doc]));
 
-	// ---------------------------------------------------------------- condense
-	const resolver = createResolver(deps, pathIndex, allFiles);
-	const kbContext = {
-		hashes: boilerplate.hashes,
-		exactHashes: boilerplate.exactHashes,
-		options: profile.condensation.boilerplate,
-	};
-	const transformStats: TransformStats[] = [];
-	let done = 0;
+	// ---------------------------------------------------------------- render
 	const rendered: RenderedNote[] = [];
-
-	await mapLimit(included, 4, async (entry) => {
+	for (const entry of included) {
 		check();
+		const preparedNote = preparedByPath.get(entry.doc.file.path);
+		if (!preparedNote) continue;
 		const doc = entry.doc;
-		let raw: string;
-		try {
-			raw = await deps.vault.read(doc.file.path);
-		} catch (error) {
-			warnings.push(`Could not read ${doc.file.path} for rendering: ${describeError(error)}`);
-			done++;
-			return;
-		}
-		const transformed = await transformDocument(raw, profile.transform, {
-			format: profile.packaging.format,
-			path: doc.file.path,
-			title: doc.title,
-			resolver,
-			transclusion: {
-				depth: profile.transform.transcludeDepth,
-				maxChars: profile.transform.transcludeMaxChars,
-				inline: profile.condensation.inlineTransclusions,
-			},
-			boilerplate: kbContext,
-		});
-		transformStats.push(transformed.stats);
-		warnings.push(...transformed.warnings.slice(0, 5));
-
-		let body = transformed.text;
+		let body = preparedNote.body;
 		let summaryApplied = false;
 		let truncated = false;
-
-		// Merge duplicate content when the profile asks for it (the duplicates
-		// are not part of `included`, so we append their unique lines here).
-		if (profile.condensation.dedupe.enabled && profile.condensation.dedupe.mode === "merge") {
-			const group = dedupe.groups.find((g) => g.representative === doc.file.path);
-			if (group) {
-				const merged = await mergeDuplicates(body, group.duplicates, deps);
-				if (merged.addedLines > 0) {
-					body = `${body}\n\n<!-- merged from duplicates -->\n${merged.text}`;
-					warnings.push(
-						`Merged ${merged.addedLines} unique line(s) from ${group.duplicates.length} duplicate note(s) into ${doc.file.path}.`,
-					);
-				}
-			}
-		}
 
 		const decision = entry.decision;
 		if (decision.action === "summarize" && profile.condensation.summarize.enabled) {
@@ -375,7 +416,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			path: doc.file.path,
 			title: doc.title,
 			body,
-			tags: profile.transform.tags === "strip" ? doc.tags : unique([...doc.tags, ...transformed.inlineTags]),
+			tags: profile.transform.tags === "strip" ? doc.tags : unique([...doc.tags, ...preparedNote.transformed.inlineTags]),
 			aliases: doc.aliases,
 			frontmatter: selectFrontmatter(doc, profile),
 			words: countWords(body),
@@ -389,19 +430,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 			summaryApplied,
 			duplicateOf: undefined,
 			truncated,
-			boilerplateLines: transformed.stats.boilerplateLines,
-			transclusions: transformed.stats.transclusions,
+			boilerplateLines: preparedNote.transformed.stats.boilerplateLines,
+			transclusions: preparedNote.transformed.stats.transclusions,
 		});
-
-		done++;
-		progress({
-			phase: "condense",
-			progress: 0.1 + 0.7 * (done / Math.max(1, included.length)),
-			message: `Condensing notes… ${done}/${included.length}`,
-			current: done,
-			total: included.length,
-		});
-	});
+	}
 
 	// Collapsed duplicates become tiny provenance stubs.
 	if (profile.condensation.dedupe.enabled && profile.condensation.dedupe.mode === "collapse") {
@@ -449,7 +481,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		droppedByFilter: droppedByFilter.length + cappedByFilter.length,
 		droppedAsDuplicate: removedAsDuplicate,
 		droppedAsStub: stubs.length,
-		droppedAsUnreadable: 0,
+		droppedAsUnreadable: unreadable,
 		words: rendered.reduce((acc, n) => acc + n.words, 0),
 		tokens: rendered.reduce((acc, n) => acc + n.tokens, 0),
 		chars: rendered.reduce((acc, n) => acc + n.chars, 0),
@@ -517,6 +549,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		bundleTitle,
 		includeToc: profile.packaging.includeToc,
 		tocMaxDepth: profile.packaging.tocMaxDepth,
+		tocMaxEntries: profile.packaging.tocMaxEntries,
 		includeKnowledgeMap: profile.packaging.includeKnowledgeMap,
 		citationIds: profile.packaging.citationIds,
 		headerTemplate: profile.packaging.headerTemplate,
@@ -541,7 +574,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		estimateTokens(applyTemplate(profile.packaging.footerTemplate, bundle.variables)).tokens +
 		estimateTokens(profile.packaging.divider).tokens * 2 +
 		40 +
-		chunkingOverhead(profile);
+		chunkingOverhead(profile) +
+		// The embedded manifest is appended to the first part *after* chunking,
+		// so room for it has to be reserved here or the part overflows.
+		embeddedManifestTokens(profile, included);
 	const partLimit = resolvePartLimit(chunking);
 	const chunked = chunkUnits(bundle.units, chunking, assemblyOverhead);
 
@@ -979,6 +1015,15 @@ function isStubDocument(doc: DocAnalysis, profile: ExportProfile): boolean {
 /* -------------------------------------------------------------------------- */
 /*  Ordering                                                                   */
 /* -------------------------------------------------------------------------- */
+
+interface PreparedNote {
+	entry: OrderedEntry;
+	/** Transformed body: what the budget measures and the renderer writes. */
+	body: string;
+	tokens: number;
+	words: number;
+	transformed: { stats: TransformStats; inlineTags: string[] };
+}
 
 interface OrderedEntry {
 	doc: DocAnalysis;
@@ -1442,18 +1487,53 @@ export function budgetTokensFromProfile(profile: ExportProfile): number {
 	return 0; // unlimited
 }
 
+/** Rough size of the JSON block appended to the first part. */
+function embeddedManifestTokens(profile: ExportProfile, included: { citationId: string; doc: { file: { path: string } } }[]): number {
+	if (!profile.packaging.manifestEmbedded || included.length === 0) return 0;
+	const entries = included.map((entry) => `"${entry.citationId}":"${entry.doc.file.path}",`).join("");
+	return estimateTokens(entries).tokens + 80; // envelope + stats
+}
+
 function chunkingOverhead(profile: ExportProfile): number {
 	// Structural overhead of a JSON/XML part (envelope, escaping).
 	if (profile.packaging.chunking.mode === "single") return 0;
 	return profile.packaging.format === "json" || profile.packaging.format === "xml" ? 60 : 0;
 }
 
-function estimateOverhead(profile: ExportProfile, notes: number): number {
-	let overhead = 400; // bundle header
-	if (profile.packaging.includeToc) overhead += notes * 22;
-	if (profile.packaging.includeKnowledgeMap) overhead += 900;
-	if (profile.packaging.citationIds) overhead += notes * 8;
-	return overhead;
+/**
+ * Pre-flight estimate of what the framing of the bundle costs in tokens:
+ * the header, the corpus map, and the per-note contents/citation lines.
+ *
+ * The per-note part is measured from a representative contents line rather
+ * than guessed, and it is charged only for notes that actually make it in
+ * (`allocateBudget` handles that), capped by the contents limit.
+ */
+function estimateOverhead(
+	profile: ExportProfile,
+	docs: DocAnalysis[],
+): { base: number; perNote: number; perIncluded: number; cap: number } {
+	let base = 400; // bundle header
+	if (profile.packaging.includeKnowledgeMap) base += 900;
+	let perNote = 0;
+	if (profile.packaging.includeToc) {
+		const averageTitle =
+			docs.length > 0 ? Math.max(8, Math.round(docs.reduce((acc, doc) => acc + doc.title.length, 0) / docs.length)) : 24;
+		const sampleTitle = "word ".repeat(Math.max(1, Math.round(averageTitle / 5))).trim();
+		const sample = profile.packaging.citationIds
+			? `- \`S01\` ${sampleTitle} — *1 234 words*`
+			: `- ${sampleTitle} — *1 234 words*`;
+		perNote += estimateTokens(sample).tokens + 1; // the line itself plus its newline
+	}
+	// What a note costs on top of its body, measured on real bundles: the
+	// `## Title` heading, the source line, the divider, the inline citation
+	// marker and the note's entry in the embedded manifest.
+	let perIncluded = 12;
+	if (profile.packaging.citationIds) perIncluded += 5;
+	if (profile.packaging.manifestEmbedded) perIncluded += 9;
+	// The corpus map lists notes too (reading order, orphans); its entries are
+	// what makes a large bundle's preamble grow with the note count.
+	if (profile.packaging.includeKnowledgeMap) perIncluded += 6;
+	return { base, perNote, perIncluded, cap: profile.packaging.tocMaxEntries };
 }
 
 /* -------------------------------------------------------------------------- */

@@ -27,6 +27,15 @@ First complete release.
   for multi-part bundles.
 - Obsidian UI: export dialog, preview modal, settings tab, ribbon icon, folder
   context menu, status bar progress, cancellation, clipboard destination.
+- Honest budgets: candidates are read and transformed *before* the token
+  budget is decided, so it works from the size the file will really have. The
+  old model budgeted raw note sizes and charged a contents line for every
+  *candidate*: on a 5 000-note vault "Chat context" reserved 151 k of overhead
+  against a 150 k budget and exported a single note. It now keeps 858 notes in
+  one part, 98 % of the budget used. The contents list is capped
+  (`tocMaxEntries`, 300 by default) with an "…and N more notes" line, and the
+  framing each note costs (heading, source line, divider, citation,
+  embedded-manifest entry) is charged per included note.
 - One file per note: per-note exports can be named after their note
   (`{{note_path}}`, `{{note_title}}`, `{{note_slug}}`) and mirror the vault's
   folder structure; nested output folders are created level by level, since

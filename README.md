@@ -125,6 +125,17 @@ changed, and the analysis cache means only edited notes are re-analysed. The
 status bar reports the refresh; nothing is opened or announced unless you asked
 for it.
 
+### Budgets that describe reality
+
+A token budget is only useful if it is measured against what will actually be
+written. The pipeline reads and transforms the candidates first, budgets the
+*transformed* sizes, and charges each included note for its framing (heading,
+source line, citation, manifest entry) — so a profile either fills its budget
+(98 % on a 5 000-note vault) or says why it could not, instead of silently
+exporting a fraction of the vault. Contents lists are capped at
+`tocMaxEntries` lines; beyond that a single "…and N more notes" line points at
+the manifest.
+
 ### One file per note
 
 The **Clean mirror** profile writes one processed file per note, named after the

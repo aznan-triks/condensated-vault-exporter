@@ -349,6 +349,13 @@ export interface PackagingOptions {
 	chunking: ChunkOptions;
 	includeToc: boolean;
 	tocMaxDepth: number;
+	/**
+	 * Upper bound on the table-of-contents entries written per part. A vault
+	 * with thousands of notes would otherwise spend most of the token budget
+	 * on a contents list; beyond the cap a single "…and N more" line is
+	 * written instead (the manifest always lists everything).
+	 */
+	tocMaxEntries: number;
 	/** Prefix the bundle with a generated map of the corpus. */
 	includeKnowledgeMap: boolean;
 	/** Append a glossary harvested from definition-style lines. */

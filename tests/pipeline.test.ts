@@ -9,7 +9,9 @@ import { detectDuplicates } from "../src/core/condense/dedupe";
 import { BoilerplateAccumulator, stripBoilerplate, normalizeLine } from "../src/core/condense/boilerplate";
 import { summarize } from "../src/core/condense/summarize";
 import { chunkUnits, type PackUnit } from "../src/core/pack/chunk";
-import { allocateBudget } from "../src/core/pack/budget";
+import { renderBundle } from "../src/core/pack/render";
+import { normalizeProfile } from "../src/core/profiles";
+import { allocateBudget, budgetItemsFromDocs } from "../src/core/pack/budget";
 import { checkLimits } from "../src/core/pack/limits";
 import { analyzeAll, fakeVault, makeFile, memorySink, testProfile, toSourceFile } from "./helpers";
 import { analyzeDocument } from "../src/core/markdown/analyzer";
@@ -323,10 +325,15 @@ describe("packaging", () => {
 		);
 		const docs = analyzeAll(files);
 		const total = docs.reduce((acc, d) => acc + d.stats.tokens, 0);
-		const tight = allocateBudget(docs, {
+		const tight = allocateBudget(budgetItemsFromDocs(docs), {
 			maxTokens: Math.round(total * 0.3),
 			maxWords: 0,
 			overheadTokens: 0,
+			perNoteOverheadTokens: 0,
+			perNoteOverheadCap: 0,
+			perIncludedTokens: 0,
+			summarizeRatio: 0.35,
+			summarizeMinWords: 0,
 			minDocTokens: 100,
 			summaryTokens: 0,
 			allowSummarize: true,
@@ -336,10 +343,15 @@ describe("packaging", () => {
 		expect(tight.totalTokens).toBeLessThanOrEqual(total * 0.35);
 		expect(tight.dropped.length + tight.summarized.length).toBeGreaterThan(0);
 
-		const impossible = allocateBudget(docs, {
+		const impossible = allocateBudget(budgetItemsFromDocs(docs), {
 			maxTokens: 200,
 			maxWords: 0,
 			overheadTokens: 0,
+			perNoteOverheadTokens: 0,
+			perNoteOverheadCap: 0,
+			perIncludedTokens: 0,
+			summarizeRatio: 0.35,
+			summarizeMinWords: 0,
 			minDocTokens: 20,
 			summaryTokens: 0,
 			allowSummarize: false,
@@ -984,5 +996,152 @@ describe("per-note naming", () => {
 		const result = await runExport({ profile }, { vault: buildFixtureVault(), sink });
 		expect(result.parts.every((part) => !part.path.includes(".."))).toBe(true);
 		expect(result.parts.every((part) => part.path.startsWith("Exports/"))).toBe(true);
+	});
+});
+
+describe("budget vs. preamble overhead", () => {
+	it("keeps a large corpus instead of budgeting itself out of existence", () => {
+		// 1 500 notes of ~60 tokens: the corpus is well above a 150 k budget,
+		// but the overhead charged per note must not scale with the *candidate*
+		// count, or every note but one gets dropped.
+		const docs = analyzeAll(
+			Array.from({ length: 1500 }, (_, i) =>
+				makeFile(`notes/n${i}.md`, `# Note ${i}\n\n${"lorem ipsum dolor sit amet consectetur ".repeat(6)}${i}`),
+			),
+		);
+		const outcome = allocateBudget(budgetItemsFromDocs(docs), {
+			maxTokens: 150_000,
+			maxWords: 0,
+			overheadTokens: 1_300,
+			perNoteOverheadTokens: 18,
+			perNoteOverheadCap: 300,
+			perIncludedTokens: 20,
+			summarizeRatio: 0.35,
+			summarizeMinWords: 0,
+			minDocTokens: 300,
+			summaryTokens: 0,
+			allowSummarize: false,
+			allowDrop: true,
+			allowTruncate: true,
+		});
+		const kept = Array.from(outcome.decisions.values()).filter((d) => d.action !== "drop");
+		expect(kept.length).toBe(1500);
+	});
+
+	it("charges a contents line per kept note when the budget is tight", () => {
+		const docs = analyzeAll(
+			Array.from({ length: 40 }, (_, i) => makeFile(`n${i}.md`, `# Note ${i}\n\n${"content words here ".repeat(50)}`)),
+		);
+		const perNote = 30;
+		const outcome = allocateBudget(budgetItemsFromDocs(docs), {
+			maxTokens: 6_000,
+			maxWords: 0,
+			overheadTokens: 500,
+			perNoteOverheadTokens: perNote,
+			perNoteOverheadCap: 0,
+			perIncludedTokens: 0,
+			summarizeRatio: 0.35,
+			summarizeMinWords: 0,
+			minDocTokens: 200,
+			summaryTokens: 0,
+			allowSummarize: false,
+			allowDrop: true,
+			allowTruncate: false,
+		});
+		const kept = Array.from(outcome.decisions.values()).filter((d) => d.action !== "drop");
+		const noteTokens = kept.reduce((acc, d) => acc + d.allowance, 0);
+		expect(noteTokens + perNote * kept.length + 500).toBeLessThanOrEqual(6_000);
+		expect(kept.length).toBeGreaterThan(0);
+		expect(kept.length).toBeLessThan(docs.length);
+	});
+});
+
+describe("contents list cap", () => {
+	it("lists the corpus and counts the rest when the cap is hit", () => {
+		const notes = Array.from({ length: 12 }, (_, i) => ({
+			id: `S${String(i + 1).padStart(2, "0")}`,
+			path: `f/n${i}.md`,
+			title: `Note ${i}`,
+			body: `## Note ${i}\n\nBody.`,
+			tags: [],
+			aliases: [],
+			frontmatter: {},
+			words: 40,
+			tokens: 6,
+			chars: 20,
+			modified: Date.parse("2026-01-15T10:00:00Z"),
+			created: Date.parse("2026-01-15T10:00:00Z"),
+			related: [],
+			inbound: 0,
+			outbound: 0,
+			summaryApplied: false,
+		}));
+		const bundle = renderBundle(notes, {
+			format: "markdown",
+			profileName: "Test",
+			bundleTitle: "Test",
+			includeToc: true,
+			tocMaxDepth: 3,
+			tocMaxEntries: 5,
+			includeKnowledgeMap: false,
+			citationIds: true,
+			headerTemplate: "",
+			footerTemplate: "",
+			divider: "",
+			noteHeadingLevel: 2,
+			includeManifest: false,
+			repeatHeaders: true,
+			generatedAt: new Date(Date.parse("2026-01-20T12:00:00Z")),
+			roots: [],
+			stats: {
+				discovered: 12,
+				kept: 12,
+				droppedByFilter: 0,
+				droppedAsDuplicate: 0,
+				droppedAsStub: 0,
+				droppedAsUnreadable: 0,
+				words: 1,
+				tokens: 1,
+				chars: 1,
+				boilerplateLines: 0,
+				summarized: 0,
+			},
+		});
+		const toc = bundle.units.find((unit) => unit.role === "preamble")?.content ?? "";
+		expect(toc).toContain("Note 0");
+		expect(toc).not.toContain("Note 11");
+		expect(toc).toContain("7 more notes");
+	});
+
+	it("caps the contents list in a real export", async () => {
+		const files = Array.from({ length: 40 }, (_, i) => makeFile(`n${i}.md`, `# Note ${i}\n\n${"body text ".repeat(30)}`));
+		const profile = testProfile({ packaging: { tocMaxEntries: 10, includeToc: true } });
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		const first = result.parts[0].content;
+		const contents = first.slice(first.indexOf("## Contents"), first.indexOf("## Contents") + 4_000);
+		expect(contents).toContain("more notes");
+		expect(contents).not.toContain("Note 39");
+	});
+});
+
+describe("realized-size budgeting", () => {
+	it("fills the budget of a single-part profile instead of dropping most notes", async () => {
+		const files = Array.from({ length: 1200 }, (_, i) =>
+			makeFile(
+				`${i % 4 === 0 ? "daily" : "notes"}/n${i}.md`,
+				`---\ntags: [t${i % 3}]\n---\n# Note ${i}\n\n${"A sentence about retrieval and ranking with numbers like 42. ".repeat(12)}`,
+			),
+		);
+		const profile = normalizeProfile({ id: "chat-context" });
+		const sink = memorySink();
+		const result = await runExport({ profile }, { vault: fakeVault(files), sink });
+		expect(result.stats.kept).toBeGreaterThan(300); // the old model kept ~15 of 1200
+		expect(result.parts.length).toBe(1);
+		const limit = profile.limits.maxTokensPerPart;
+		expect(result.parts[0].tokens).toBeLessThanOrEqual(limit);
+		// And not far below it either: a budget that leaves half the room empty
+		// is a budget that threw content away for nothing.
+		expect(result.parts[0].tokens).toBeGreaterThan(limit * 0.6);
 	});
 });

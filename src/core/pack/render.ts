@@ -47,6 +47,8 @@ export interface RenderOptions {
 	bundleTitle: string;
 	includeToc: boolean;
 	tocMaxDepth: number;
+	/** Truncate the contents list after this many entries (0 = no limit). */
+	tocMaxEntries: number;
 	includeKnowledgeMap: boolean;
 	citationIds: boolean;
 	headerTemplate: string;
@@ -279,7 +281,20 @@ function renderToc(notes: RenderedNote[], options: RenderOptions): string {
 		if (list) list.push(note);
 		else byFolder.set(folder, [note]);
 	}
+	const cap = options.tocMaxEntries > 0 ? options.tocMaxEntries : Number.POSITIVE_INFINITY;
 	const lines: string[] = [];
+	let listed = 0;
+	let skipped = 0;
+	const noteLine = (note: RenderedNote, markdown: boolean): string => {
+		if (listed >= cap) {
+			skipped++;
+			return "";
+		}
+		listed++;
+		if (!markdown) return `  ${options.citationIds ? `[${note.id}] ` : ""}${note.title} (${note.path})`;
+		const label = options.citationIds ? `\`${note.id}\` ${note.title} — *${formatCount(note.words)} words*` : `${note.title} — *${formatCount(note.words)} words*`;
+		return `- ${label}`;
+	};
 	if (options.format === "markdown") {
 		lines.push("## Contents", "");
 		const folders = Array.from(byFolder.keys()).sort((a, b) => a.localeCompare(b));
@@ -287,19 +302,27 @@ function renderToc(notes: RenderedNote[], options: RenderOptions): string {
 			const entries = byFolder.get(folder)!;
 			if (folders.length > 1) lines.push(`**${folder}/** (${entries.length})`, "");
 			for (const note of entries) {
-				const label = options.citationIds ? `\`${note.id}\` ${note.title} — *${formatCount(note.words)} words*` : `${note.title} — *${formatCount(note.words)} words*`;
-				lines.push(`- ${label}`);
+				const line = noteLine(note, true);
+				if (line !== "") lines.push(line);
 			}
 			lines.push("");
 		}
 	} else if (options.format === "plain") {
 		lines.push("CONTENTS", "");
 		for (const note of notes) {
-			lines.push(`  ${options.citationIds ? `[${note.id}] ` : ""}${note.title} (${note.path})`);
+			const line = noteLine(note, false);
+			if (line !== "") lines.push(line);
 		}
 		lines.push("");
 	} else {
 		return "";
+	}
+	if (skipped > 0) {
+		lines.push(
+			options.format === "markdown"
+				? `*(…and ${formatCount(skipped)} more notes — the full list is in the manifest.)*`
+				: `…and ${formatCount(skipped)} more notes (full list in the manifest).`,
+		);
 	}
 	return lines.join("\n").trim();
 }

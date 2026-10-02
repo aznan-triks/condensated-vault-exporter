@@ -106,6 +106,7 @@ export const DEFAULT_PACKAGING: PackagingOptions = {
 	},
 	includeToc: true,
 	tocMaxDepth: 3,
+	tocMaxEntries: 300,
 	includeKnowledgeMap: true,
 	includeGlossary: true,
 	citationIds: true,
