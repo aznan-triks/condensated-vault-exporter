@@ -4,14 +4,17 @@
  *
  * Why it matters: when you push 40 notes into an LLM, the model has no idea
  * what the corpus *is*. A short map — themes, key terms, hubs, timeline,
- * reading order — measurably improves retrieval and lets the model answer
- * "what's in here?" without scanning everything.
+ * reading order, and temporal drift — measurably improves retrieval and lets
+ * the model answer "what's in here?" without scanning everything.
  */
 
 import type { DocAnalysis } from "../types";
 import { formatCount } from "../util";
-import type { LinkGraph } from "./graph";
+import type { DriftFinding } from "./contradictions";
+import type { LinkGraph, PhantomNote } from "./graph";
+import { extractPropertySchema, type PropertySchemaEntry } from "./schema";
 import type { ThemeCluster } from "./similarity";
+import type { OpenItemsSummary } from "./tasks";
 
 export interface KnowledgeMapInput {
 	docs: DocAnalysis[];
@@ -37,6 +40,17 @@ export interface KnowledgeMapInput {
 	included?: string[];
 	/** “Term — definition” pairs harvested from the notes. */
 	glossary: { term: string; definition: string; path: string }[];
+	/** Optional conflicting figures / temporal drift findings across the corpus. */
+	contradictions?: DriftFinding[];
+	/** Optional open tasks, blockers, and unanswered questions harvested from the corpus. */
+	openItems?: OpenItemsSummary;
+}
+
+export interface TopologyEdge {
+	from: string;
+	to: string;
+	fromTitle: string;
+	toTitle: string;
 }
 
 export interface KnowledgeMap {
@@ -57,14 +71,28 @@ export interface KnowledgeMap {
 	tags: { tag: string; count: number }[];
 	themes: { id: number; label: string; notes: number; words: number; paths: string[] }[];
 	hubs: { path: string; title: string; inbound: number; centrality: number }[];
+	/** Maps of Content / index notes with high outgoing link hub scores. */
+	mocs: { path: string; title: string; outbound: number; hubScore: number }[];
+	/** Bridge notes connecting multiple folders or clusters. */
+	bridges: { path: string; title: string; foldersBridged: number; inbound: number; outbound: number }[];
 	orphans: { path: string; title: string }[];
 	brokenLinks: { from: string; target: string }[];
+	/** Missing notes referenced across the corpus, ordered by citation count. */
+	phantoms: PhantomNote[];
 	timeline: { period: string; notes: number }[];
 	duplicates: { representative: string; duplicates: string[]; similarity: number; kind: string }[];
 	boilerplate: { text: string; docs: number }[];
 	/** A suggested reading order: hubs first, then themes by size. */
 	readingOrder: { path: string; title: string; reason: string }[];
 	glossary: { term: string; definition: string; path: string }[];
+	/** Conflicting figures or status reversals between older and newer notes. */
+	contradictions: DriftFinding[];
+	/** Strongest directed edges in the bundled link graph (for topology diagrams). */
+	topologyEdges: TopologyEdge[];
+	/** Discovered frontmatter property schema across bundled notes. */
+	schema: PropertySchemaEntry[];
+	/** Aggregated open tasks, blockers, and unanswered questions. */
+	openItems?: OpenItemsSummary;
 }
 
 export function buildKnowledgeMap(input: KnowledgeMapInput): KnowledgeMap {
@@ -141,6 +169,32 @@ export function buildKnowledgeMap(input: KnowledgeMapInput): KnowledgeMap {
 		readingOrder.push({ path: doc.file.path, title: doc.title, reason: "high information density" });
 	}
 
+	// Build a compact set of top topology edges among bundled notes, prioritizing
+	// high-centrality endpoints so the diagram highlights the spine of the vault.
+	const candidateEdges: { from: string; to: string; weight: number }[] = [];
+	for (const node of graph.nodes.values()) {
+		if (!inBundle(node.path)) continue;
+		for (const target of node.links) {
+			if (!inBundle(target)) continue;
+			const targetNode = graph.nodes.get(target);
+			const weight = (node.centrality + (targetNode?.centrality ?? 0)) * 0.5 + (targetNode?.inDegree ?? 0) * 0.1;
+			candidateEdges.push({ from: node.path, to: target, weight });
+		}
+	}
+	candidateEdges.sort((a, b) => b.weight - a.weight || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+	const topologyEdges: TopologyEdge[] = candidateEdges.slice(0, 14).map((e) => ({
+		from: e.from,
+		to: e.to,
+		fromTitle: titleOf.get(e.from) ?? e.from,
+		toTitle: titleOf.get(e.to) ?? e.to,
+	}));
+
+	const contradictions = (input.contradictions ?? []).filter(
+		(c) => inBundle(c.older.path) && inBundle(c.newer.path),
+	);
+	const bundledDocs = docs.filter((d) => inBundle(d.file.path));
+	const schema = extractPropertySchema(bundledDocs).slice(0, 20);
+
 	return {
 		generatedAt: input.generatedAt.toISOString(),
 		profile: input.profileName,
@@ -179,7 +233,31 @@ export function buildKnowledgeMap(input: KnowledgeMapInput): KnowledgeMap {
 		hubs: graph.hubs
 			.filter((hub) => hub.inDegree > 0 && inBundle(hub.path))
 			.slice(0, 15)
-			.map((hub) => ({ path: hub.path, title: titleOf.get(hub.path) ?? hub.path, inbound: hub.inDegree, centrality: Number(hub.centrality.toFixed(3)) })),
+			.map((hub) => ({
+				path: hub.path,
+				title: titleOf.get(hub.path) ?? hub.path,
+				inbound: hub.inDegree,
+				centrality: Number(hub.centrality.toFixed(3)),
+			})),
+		mocs: (graph.mocs ?? [])
+			.filter((moc) => inBundle(moc.path))
+			.slice(0, 10)
+			.map((moc) => ({
+				path: moc.path,
+				title: titleOf.get(moc.path) ?? moc.path,
+				outbound: moc.outDegree,
+				hubScore: Number(moc.hubScore.toFixed(3)),
+			})),
+		bridges: (graph.bridges ?? [])
+			.filter((b) => inBundle(b.path))
+			.slice(0, 10)
+			.map((b) => ({
+				path: b.path,
+				title: titleOf.get(b.path) ?? b.path,
+				foldersBridged: b.foldersBridged,
+				inbound: b.inDegree,
+				outbound: b.outDegree,
+			})),
 		orphans: graph.orphans
 			.filter((node) => inBundle(node.path))
 			.slice(0, 40)
@@ -188,6 +266,14 @@ export function buildKnowledgeMap(input: KnowledgeMapInput): KnowledgeMap {
 			.filter((b) => inBundle(b.from))
 			.slice(0, 40)
 			.map((b) => ({ from: b.from, target: b.target })),
+		phantoms: (graph.phantoms ?? [])
+			.map((p) => ({
+				target: p.target,
+				referencedBy: p.referencedBy.filter(inBundle),
+				count: p.referencedBy.filter(inBundle).length,
+			}))
+			.filter((p) => p.count > 0)
+			.slice(0, 20),
 		timeline: Array.from(timelineBuckets.entries())
 			.map(([period, notes]) => ({ period, notes }))
 			.sort((a, b) => a.period.localeCompare(b.period))
@@ -201,6 +287,10 @@ export function buildKnowledgeMap(input: KnowledgeMapInput): KnowledgeMap {
 		boilerplate: input.boilerplate,
 		readingOrder,
 		glossary: input.glossary.slice(0, 60),
+		contradictions,
+		topologyEdges,
+		schema,
+		openItems: input.openItems,
 	};
 }
 
@@ -219,11 +309,48 @@ export interface MapRenderOptions {
 	readingOrder: boolean;
 	/** Include the duplicate / boilerplate report. */
 	quality: boolean;
+	/** Include a Mermaid link-topology diagram when edges exist. */
+	topologyDiagram?: boolean;
 	maxTerms: number;
 	maxThemes: number;
 }
 
-const DEFAULT_RENDER: MapRenderOptions = { readingOrder: true, quality: true, maxTerms: 25, maxThemes: 12 };
+const DEFAULT_RENDER: MapRenderOptions = {
+	readingOrder: true,
+	quality: true,
+	topologyDiagram: false,
+	maxTerms: 25,
+	maxThemes: 12,
+};
+
+/**
+ * Generates a bounded Mermaid `graph LR` diagram from the strongest edges in
+ * the knowledge map. Returns an empty string when there are no edges.
+ */
+export function knowledgeMapToMermaid(map: KnowledgeMap, maxEdges = 12): string {
+	const edges = (map.topologyEdges ?? []).slice(0, maxEdges);
+	if (edges.length === 0) return "";
+	const nodeIds = new Map<string, string>();
+	const nodeLabels = new Map<string, string>();
+	const getId = (path: string, title: string): string => {
+		let id = nodeIds.get(path);
+		if (!id) {
+			id = `N${nodeIds.size + 1}`;
+			nodeIds.set(path, id);
+			const safeLabel = title.replace(/["[\]()]/g, "").slice(0, 36).trim() || path;
+			nodeLabels.set(id, safeLabel);
+		}
+		return id;
+	};
+	const lines: string[] = ["```mermaid", "graph LR"];
+	for (const edge of edges) {
+		const a = getId(edge.from, edge.fromTitle);
+		const b = getId(edge.to, edge.toTitle);
+		lines.push(`  ${a}["${nodeLabels.get(a)}"] --> ${b}["${nodeLabels.get(b)}"]`);
+	}
+	lines.push("```");
+	return lines.join("\n");
+}
 
 export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRenderOptions> = {}): string {
 	const opts = { ...DEFAULT_RENDER, ...options };
@@ -282,6 +409,13 @@ export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRe
 		lines.push("");
 	}
 
+	if (opts.topologyDiagram && (map.topologyEdges?.length ?? 0) >= 2) {
+		const mermaid = knowledgeMapToMermaid(map);
+		if (mermaid !== "") {
+			lines.push("### Concept topology", "", mermaid, "");
+		}
+	}
+
 	if (map.timeline.length > 1) {
 		lines.push("### Timeline", "");
 		lines.push(map.timeline.map((t) => `\`${t.period}\`: ${t.notes}`).join(" · "));
@@ -292,6 +426,45 @@ export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRe
 		lines.push("### Glossary", "");
 		for (const entry of map.glossary) {
 			lines.push(`- **${entry.term}** — ${entry.definition}  \`(${entry.path})\``);
+		}
+		lines.push("");
+	}
+
+	if ((map.contradictions?.length ?? 0) > 0) {
+		lines.push("### Temporal drift & conflicting figures", "");
+		for (const finding of map.contradictions.slice(0, 8)) {
+			const olderDate = finding.older.mtime > 0 ? ` (${new Date(finding.older.mtime).toISOString().slice(0, 10)})` : "";
+			const newerDate = finding.newer.mtime > 0 ? ` (${new Date(finding.newer.mtime).toISOString().slice(0, 10)})` : "";
+			lines.push(
+				`- **${finding.subject}**: \`${finding.older.path}\`${olderDate} has **${finding.older.value}** → \`${finding.newer.path}\`${newerDate} has **${finding.newer.value}**`,
+			);
+		}
+		lines.push("");
+	}
+
+	if ((map.schema?.length ?? 0) > 0) {
+		lines.push("### Frontmatter schema", "");
+		for (const prop of map.schema.slice(0, 10)) {
+			const top =
+				prop.topValues.length > 0
+					? ` — e.g. ${prop.topValues
+							.slice(0, 3)
+							.map((v) => `\`${v.value}\` (${v.count})`)
+							.join(", ")}`
+					: "";
+			lines.push(`- **${prop.key}** (\`${prop.type}\`, ${prop.notes} note${prop.notes === 1 ? "" : "s"})${top}`);
+		}
+		lines.push("");
+	}
+
+	if (map.openItems && (map.openItems.tasks.length > 0 || map.openItems.questions.length > 0)) {
+		lines.push("### Open tasks & questions", "");
+		for (const item of map.openItems.tasks.slice(0, 6)) {
+			const tag = item.priority === "high" ? "**[HIGH]** " : item.kind === "in-progress" ? "**[WIP]** " : "";
+			lines.push(`- [ ] ${tag}${item.text}  \`(${item.path})\``);
+		}
+		for (const q of map.openItems.questions.slice(0, 5)) {
+			lines.push(`- ❓ ${q.text}  \`(${q.path})\``);
 		}
 		lines.push("");
 	}
@@ -318,6 +491,15 @@ export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRe
 		if (map.brokenLinks.length > 0) {
 			rows.push(`- **${map.brokenLinks.length} broken link(s)**, e.g. \`${map.brokenLinks[0].from}\` → “${map.brokenLinks[0].target}”`);
 		}
+		const multiPhantoms = (map.phantoms ?? []).filter((p) => p.count >= 2);
+		if (multiPhantoms.length > 0) {
+			rows.push(
+				`- **${multiPhantoms.length} missing phantom concept(s)** cited by multiple notes: ${multiPhantoms
+					.slice(0, 5)
+					.map((p) => `“${p.target}” (${p.count}×)`)
+					.join(", ")}`,
+			);
+		}
 		if (map.boilerplate.length > 0) {
 			rows.push(
 				`- **Repeated lines** were removed as boilerplate, e.g. ${map.boilerplate
@@ -335,7 +517,7 @@ export function knowledgeMapToMarkdown(map: KnowledgeMap, options: Partial<MapRe
 }
 
 export function knowledgeMapToText(map: KnowledgeMap, options: Partial<MapRenderOptions> = {}): string {
-	const markdown = knowledgeMapToMarkdown(map, options);
+	const markdown = knowledgeMapToMarkdown(map, { ...options, topologyDiagram: false });
 	return markdown
 		.replace(/^#{1,6}\s*/gm, "")
 		.replace(/\*\*(.+?)\*\*/g, "$1")

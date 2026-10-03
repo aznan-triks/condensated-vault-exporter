@@ -5,8 +5,17 @@
  */
 
 import { App, Modal, Notice, TFile, normalizePath } from "obsidian";
-import { ExportAbortedError, type ExportProfile, type ExportResult, type SourceFile } from "../core/types";
+import { ExportAbortedError, type DocAnalysis, type ExportProfile, type ExportResult, type SourceFile } from "../core/types";
 import { runExport, selectCandidates, type ExportDeps, type PreviousManifestLike } from "../core/pipeline";
+import { analyzeDocument } from "../core/markdown/analyzer";
+import { BoilerplateAccumulator, lineHasDigits } from "../core/condense/boilerplate";
+import { detectDuplicates } from "../core/condense/dedupe";
+import { buildLinkGraph } from "../core/intel/graph";
+import { buildRelatedIndex, buildThemes } from "../core/intel/similarity";
+import { buildKeyTerms, extractGlossary } from "../core/intel/terms";
+import { detectContradictions } from "../core/intel/contradictions";
+import { extractOpenItems } from "../core/intel/tasks";
+import { buildKnowledgeMap, knowledgeMapToMermaid, type KnowledgeMap } from "../core/intel/knowledgeMap";
 import { AnalysisCache } from "../core/state/cache";
 import { createState, type ExportState } from "../core/state/manifest";
 import { computeProfileStatus, type ProfileStatus } from "../core/state/status";
@@ -14,6 +23,12 @@ import { formatCount, hashString } from "../core/util";
 import { ExportProgress } from "./progress";
 import { FileSystemSinkPort, ObsidianVaultPort, VaultSinkPort } from "./vaultPort";
 import type { PluginSettings } from "./settings";
+
+export interface VaultIntelligenceReport {
+	map: KnowledgeMap;
+	mermaid: string;
+	durationMs: number;
+}
 
 export interface RunOptions {
 	mode?: "export" | "preview";
@@ -270,7 +285,7 @@ export class ExportRunner {
 		notice.noticeEl.addClass("cve-notice");
 		// The notice is the fastest way back to what was just written: clicking
 		// it opens the first part in a new tab.
-		const firstWritten = result.written.find((path) => path.endsWith(".md") || path.endsWith(".txt"));
+		const firstWritten = result.written.find((path) => path.endsWith(".md") || path.endsWith(".txt") || path.endsWith(".html"));
 		if (options.mode !== "preview" && firstWritten) {
 			notice.noticeEl.addClass("cve-notice-clickable");
 			notice.noticeEl.setAttribute("title", `Open ${firstWritten}`);
@@ -355,13 +370,129 @@ export class ExportRunner {
 	/** Lists markdown files (used by the folder picker in the modal). */
 	/**
 	 * Cheap scope estimate for the dialog: how much markdown a target folder
-	 * holds. Uses the cached file list only — no note is read.
+	 * holds. Uses the cached file list only — no note is read. When `profile` is
+	 * supplied, applies `selectCandidates` so the count honours profile targets,
+	 * globs, depth, and output folder exclusions.
 	 */
-	async estimateScope(target: string): Promise<{ notes: number; bytes: number }> {
+	async estimateScope(target: string, profile?: ExportProfile): Promise<{ notes: number; bytes: number }> {
+		if (profile) {
+			const all = await this.vaultPort.listFiles();
+			const effective: ExportProfile = {
+				...profile,
+				targets: target === "" ? profile.targets : [target],
+			};
+			const selection = selectCandidates(
+				all,
+				effective,
+				maxFileBytes(effective),
+				effective.filters.respectObsidianIgnore ? this.ignoredPatterns() : [],
+			);
+			let bytes = 0;
+			for (const file of selection.files) bytes += file.size;
+			return { notes: selection.files.length, bytes };
+		}
 		const files: SourceFile[] = await this.vaultPort.listFiles(target === "" ? undefined : [target]);
 		let bytes = 0;
 		for (const file of files) bytes += file.size;
 		return { notes: files.length, bytes };
+	}
+
+	/**
+	 * Runs a fast, offline intelligence pass over the vault (reusing the warm
+	 * analysis cache) to build a complete Corpus Knowledge Map, link topology,
+	 * duplicate clusters, phantom concepts, and contradiction/drift report.
+	 */
+	async analyzeVaultIntelligence(target = ""): Promise<VaultIntelligenceReport> {
+		const started = Date.now();
+		const settings = this.getSettings();
+		const baseProfile =
+			settings.profiles.find((p) => p.id === settings.activeProfileId) ?? settings.profiles[0];
+		const effective: ExportProfile = {
+			...baseProfile,
+			targets: target === "" ? [] : [target],
+		};
+		const all = await this.vaultPort.listFiles();
+		const selection = selectCandidates(
+			all,
+			effective,
+			maxFileBytes(effective),
+			effective.filters.respectObsidianIgnore ? this.ignoredPatterns() : [],
+		);
+		const bpAcc = new BoilerplateAccumulator(effective.condensation.boilerplate);
+		const docs: DocAnalysis[] = [];
+		const rawBodies = new Map<string, string>();
+
+		for (const file of selection.files) {
+			const key = `${file.path}:${file.size}:${file.mtime}`;
+			let doc = this.cache.get(key);
+			let text: string | null = null;
+			try {
+				text = await this.vaultPort.read(file.path);
+			} catch {
+				continue;
+			}
+			if (!doc) {
+				doc = analyzeDocument(file, text, { lineSink: bpAcc });
+				this.cache.set(key, doc);
+			} else {
+				bpAcc.addDocument(doc);
+			}
+			docs.push(doc);
+			rawBodies.set(file.path, text);
+		}
+
+		const boilerplate = bpAcc.finish();
+		const graph = buildLinkGraph(docs);
+		const related = buildRelatedIndex(docs, { topK: 6, minSimilarity: 0.35 });
+		const themes = buildThemes(docs, related, { minSimilarity: 0.4, minSize: 2, maxThemes: 12 });
+		const keyTerms = buildKeyTerms(docs);
+		const dedupe = detectDuplicates(docs, {
+			enabled: true,
+			mode: "collapse",
+			threshold: 0.88,
+			containmentThreshold: 0.93,
+			minWords: 25,
+		});
+		const docWithBodies = docs.map((d) => ({
+			analysis: d,
+			body: rawBodies.get(d.file.path) ?? d.lineSamples.join("\n"),
+		}));
+		const glossary = extractGlossary(docWithBodies);
+		const contradictions = detectContradictions(docWithBodies, graph, 25);
+		const openItems = extractOpenItems(docWithBodies, 40);
+		const words = docs.reduce((acc, d) => acc + d.stats.words, 0);
+		const tokens = docs.reduce((acc, d) => acc + d.stats.tokens, 0);
+		const charCount = docs.reduce((acc, d) => acc + d.stats.chars, 0);
+
+		const map = buildKnowledgeMap({
+			docs,
+			graph,
+			themes,
+			keyTerms: keyTerms.byPath,
+			duplicates: dedupe.groups,
+			boilerplate: boilerplate.samples
+				.filter((s) => s.text.trim().length >= 10 && !lineHasDigits(s.text))
+				.slice(0, 10),
+			stats: {
+				discovered: selection.files.length,
+				kept: docs.length,
+				words,
+				tokens,
+				charCount,
+			},
+			roots: target === "" ? ["(vault root)"] : [target],
+			generatedAt: new Date(),
+			profileName: baseProfile.name,
+			glossary,
+			contradictions,
+			openItems,
+		});
+
+		return {
+			map,
+			mermaid: knowledgeMapToMermaid(map),
+			durationMs: Math.max(1, Date.now() - started),
+		};
 	}
 
 	/**

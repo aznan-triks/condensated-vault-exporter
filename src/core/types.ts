@@ -235,7 +235,9 @@ export type OrderBy =
 	| "created"
 	| "words"
 	| "frontmatter"
-	| "centrality";
+	| "centrality"
+	| "signal"
+	| "value";
 
 export interface OrderOptions {
 	by: OrderBy;
@@ -325,8 +327,8 @@ export interface BoilerplateOptions {
 
 export interface SummarizeOptions {
 	enabled: boolean;
-	/** How sentences are picked: leading, tf-scored centroid, or keypoint based. */
-	method: "lead" | "centroid" | "keypoints";
+	/** How sentences are picked: leading, tf-scored centroid, keypoint based, or MMR diversity. */
+	method: "lead" | "centroid" | "keypoints" | "mmr";
 	mode: "ratio" | "sentences";
 	/** Fraction of sentences to keep when `mode === "ratio"`. */
 	ratio: number;
@@ -352,9 +354,11 @@ export interface CondensationOptions {
 	dropStubs: DropStubsOptions;
 	/** Merge a note's body inline at the position of its embed instead of at its own place. */
 	inlineTransclusions: boolean;
+	/** Automatically replace detected credentials in the bundle with [REDACTED: ...] placeholders. */
+	redactSecrets?: boolean;
 }
 
-export type ExportFormat = "markdown" | "plain" | "json" | "jsonl" | "xml";
+export type ExportFormat = "markdown" | "plain" | "json" | "jsonl" | "xml" | "html";
 export interface ChunkOptions {
 	mode: ChunkMode;
 	maxChars: number;
@@ -591,6 +595,8 @@ export interface ExportResult {
 	report?: string;
 	/** How the bundled notes differ from the previous export's manifest. */
 	delta?: ExportDelta;
+	/** Structured knowledge map computed for the bundle, when enabled. */
+	knowledgeMap?: unknown;
 }
 
 /** Difference between this run and the previous one, note by note. */

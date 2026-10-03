@@ -180,7 +180,7 @@ const DEFAULT_SPLIT: ChunkOptions = {
  * `S07.1`, `S07.2`).
  */
 export function splitNoteRecords(note: RenderedNote, options: RenderOptions): RenderedNote[] {
-	if (options.format === "markdown" || options.format === "plain") return [note];
+	if (options.format === "markdown" || options.format === "plain" || options.format === "html") return [note];
 	const limit = options.maxRecordTokens ?? 0;
 	if (limit <= 0) return [note];
 	const recordTokens =
@@ -228,6 +228,8 @@ function renderNoteUnit(note: RenderedNote, options: RenderOptions, headingLevel
 			return renderJsonUnit(note, options);
 		case "xml":
 			return renderXmlUnit(note, options);
+		case "html":
+			return renderHtmlUnit(note, options);
 		case "plain":
 			return renderPlainUnit(note, options);
 		case "markdown":
@@ -388,6 +390,64 @@ function renderXmlUnit(note: RenderedNote, options: RenderOptions): PackUnit {
 	};
 }
 
+function renderHtmlUnit(note: RenderedNote, options: RenderOptions): PackUnit {
+	const anchorId = escapeXml(note.id || note.path);
+	const badge = options.citationIds && note.id ? `<span class="cve-badge">${escapeXml(note.id)}</span> ` : "";
+	const tagsHtml =
+		note.tags.length > 0
+			? note.tags
+					.slice(0, 8)
+					.map((t) => `<span class="cve-tag">#${escapeXml(t)}</span>`)
+					.join(" ")
+			: "";
+	const links = note.links ?? [];
+	const linksHtml =
+		links.length > 0
+			? `<span class="cve-meta-item">links: ${links
+					.slice(0, 6)
+					.map((l) => `<a href="#${escapeXml(l.id)}">${escapeXml(l.id)} ${escapeXml(l.title)}</a>`)
+					.join(", ")}</span>`
+			: "";
+	const backlinks = note.backlinks ?? [];
+	const backlinksHtml =
+		backlinks.length > 0
+			? `<span class="cve-meta-item">linked from: ${backlinks
+					.slice(0, 6)
+					.map((l) => `<a href="#${escapeXml(l.id)}">${escapeXml(l.id)} ${escapeXml(l.title)}</a>`)
+					.join(", ")}</span>`
+			: "";
+	const metaItems = [
+		`<code>${escapeXml(note.path)}</code>`,
+		`<span>${formatCount(note.words)} words</span>`,
+		note.modified > 0 ? `<span>updated ${isoDate(note.modified)}</span>` : "",
+		tagsHtml,
+		linksHtml,
+		backlinksHtml,
+	]
+		.filter(Boolean)
+		.join(" · ");
+	const bodyHtml = markdownToHtml(note.body);
+	const content = [
+		`<article class="cve-doc" id="${anchorId}" data-id="${escapeXml(note.id.toLowerCase())}" data-title="${escapeXml(note.title.toLowerCase())}" data-path="${escapeXml(note.path.toLowerCase())}" data-tags="${escapeXml(note.tags.join(" ").toLowerCase())}">`,
+		`  <header class="cve-doc-header">`,
+		`    <h2 class="cve-doc-title">${badge}${escapeXml(note.title)}</h2>`,
+		`    <div class="cve-doc-meta">${metaItems}</div>`,
+		`  </header>`,
+		`  <div class="cve-doc-body">${bodyHtml}</div>`,
+		`</article>`,
+	].join("\n");
+	return {
+		origin: note.path,
+		role: "document",
+		id: note.id,
+		title: note.title,
+		content,
+		chars: content.length,
+		tokens: countTokens(note.body) + 25,
+		splittable: false,
+	};
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Table of contents & knowledge map                                          */
 /* -------------------------------------------------------------------------- */
@@ -434,12 +494,27 @@ function renderToc(notes: RenderedNote[], options: RenderOptions): string {
 			if (line !== "") lines.push(line);
 		}
 		lines.push("");
+	} else if (options.format === "html") {
+		lines.push(`<nav class="cve-toc"><h2>Contents</h2><ul>`);
+		for (const note of notes) {
+			if (listed >= cap) {
+				skipped++;
+				continue;
+			}
+			listed++;
+			const anchor = escapeXml(note.id || note.path);
+			const badge = options.citationIds && note.id ? `<span class="cve-badge">${escapeXml(note.id)}</span> ` : "";
+			lines.push(
+				`  <li><a href="#${anchor}">${badge}${escapeXml(note.title)}</a> <span class="cve-muted">(${formatCount(note.words)} words)</span></li>`,
+			);
+		}
+		lines.push(`</ul></nav>`);
 	} else {
 		return "";
 	}
 	if (skipped > 0) {
 		lines.push(
-			options.format === "markdown"
+			options.format === "markdown" || options.format === "html"
 				? `*(…and ${formatCount(skipped)} more notes — the full list is in the manifest.)*`
 				: `…and ${formatCount(skipped)} more notes (full list in the manifest).`,
 		);
@@ -452,6 +527,9 @@ function renderKnowledgeMap(options: RenderOptions): string {
 	if (!map) return "";
 	if (options.format === "markdown") return knowledgeMapToMarkdown(map);
 	if (options.format === "plain") return knowledgeMapToText(map);
+	if (options.format === "html") {
+		return `<section class="cve-map"><details open><summary>Corpus Knowledge Map</summary><div class="cve-map-body">${markdownToHtml(knowledgeMapToMarkdown(map))}</div></details></section>`;
+	}
 	return "";
 }
 
@@ -577,6 +655,27 @@ export function assemblePart(units: PackUnit[], options: PartAssemblyOptions): s
 			const footerXml = footer ? `\n  <postamble><![CDATA[${footer.replace(/]]>/g, "]]]]><![CDATA[>")}]]></postamble>` : "";
 			return `${prologue}${headerXml}\n${documents.join("\n")}${footerXml}\n</bundle>`;
 		}
+		case "html": {
+			const preambleHtml = units
+				.filter((unit) => unit.role === "preamble")
+				.map((unit) => unit.content)
+				.join("\n");
+			const documentsHtml = units
+				.filter((unit) => unit.role !== "preamble" && unit.role !== "footer")
+				.map((unit) => unit.content)
+				.join("\n");
+			return assembleHtmlDocument({
+				title: variables.title,
+				profileName: options.profile.name,
+				partIndex: options.partIndex,
+				partTotal: options.partTotal,
+				stats: options.stats,
+				generatedAt: options.generatedAt,
+				preambleHtml,
+				documentsHtml,
+				footerText: footer,
+			});
+		}
 		default: {
 			const separator = options.includeNoteSeparators ? options.divider : "\n\n";
 			const body = units
@@ -642,6 +741,167 @@ export function stripMarkdown(text: string): string {
 		.replace(/~~(.*?)~~/g, "$1")
 		.replace(/^\s*([-*+])\s+/gm, "• ")
 		.replace(/\n{3,}/g, "\n\n");
+}
+
+/** Lightweight, zero-dependency Markdown→HTML renderer for interactive HTML bundles. */
+export function markdownToHtml(markdown: string): string {
+	const lines = markdown.split(/\r?\n/);
+	const out: string[] = [];
+	let inCode = false;
+	let codeLang = "";
+	let codeLines: string[] = [];
+	let inList = false;
+
+	const closeList = () => {
+		if (inList) {
+			out.push("</ul>");
+			inList = false;
+		}
+	};
+
+	const formatInline = (raw: string): string => {
+		let s = escapeXml(raw);
+		s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+		s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+		s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+		s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+		return s;
+	};
+
+	for (const line of lines) {
+		const fence = /^(`{3,}|~{3,})(.*)$/.exec(line.trim());
+		if (fence) {
+			closeList();
+			if (!inCode) {
+				inCode = true;
+				codeLang = fence[2].trim();
+				codeLines = [];
+			} else {
+				const cls = codeLang ? ` class="language-${escapeXml(codeLang)}"` : "";
+				out.push(`<pre><code${cls}>${escapeXml(codeLines.join("\n"))}</code></pre>`);
+				inCode = false;
+				codeLang = "";
+				codeLines = [];
+			}
+			continue;
+		}
+		if (inCode) {
+			codeLines.push(line);
+			continue;
+		}
+		const trimmed = line.trim();
+		if (trimmed === "") {
+			closeList();
+			continue;
+		}
+		const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
+		if (heading) {
+			closeList();
+			const lvl = Math.min(6, heading[1].length);
+			out.push(`<h${lvl}>${formatInline(heading[2])}</h${lvl}>`);
+			continue;
+		}
+		const bullet = /^[-*+]\s+(.+)$/.exec(trimmed);
+		if (bullet) {
+			if (!inList) {
+				out.push("<ul>");
+				inList = true;
+			}
+			out.push(`<li>${formatInline(bullet[1])}</li>`);
+			continue;
+		}
+		closeList();
+		if (trimmed.startsWith(">")) {
+			out.push(`<blockquote>${formatInline(trimmed.replace(/^>\s?/, ""))}</blockquote>`);
+			continue;
+		}
+		out.push(`<p>${formatInline(trimmed)}</p>`);
+	}
+	closeList();
+	if (inCode && codeLines.length > 0) {
+		out.push(`<pre><code>${escapeXml(codeLines.join("\n"))}</code></pre>`);
+	}
+	return out.join("\n");
+}
+
+function assembleHtmlDocument(input: {
+	title: string;
+	profileName: string;
+	partIndex: number;
+	partTotal: number;
+	stats: PlanStats;
+	generatedAt: Date;
+	preambleHtml: string;
+	documentsHtml: string;
+	footerText: string;
+}): string {
+	const partBadge = input.partTotal > 1 ? ` · Part ${input.partIndex + 1} of ${input.partTotal}` : "";
+	const css = `
+:root { --bg: #0f1117; --surface: #181b24; --border: #2a2f3d; --text: #e6e9f0; --muted: #9aa3b5; --accent: #7c6df2; --tag-bg: rgba(124,109,242,0.14); }
+@media (prefers-color-scheme: light) { :root { --bg: #f7f8fa; --surface: #ffffff; --border: #e2e6ef; --text: #1c202b; --muted: #5e6678; --accent: #5848d6; --tag-bg: rgba(88,72,214,0.1); } }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+.cve-shell { max-width: 980px; margin: 0 auto; padding: 24px 20px 64px; }
+.cve-topbar { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.cve-title { font-size: 1.15rem; font-weight: 700; margin: 0; }
+.cve-stats { font-size: 0.85rem; color: var(--muted); }
+.cve-search { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); min-width: 240px; font-size: 0.9rem; }
+.cve-map, .cve-toc, .cve-doc { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin-bottom: 18px; }
+.cve-doc-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 14px; }
+.cve-doc-title { margin: 0 0 6px; font-size: 1.25rem; }
+.cve-doc-meta { font-size: 0.82rem; color: var(--muted); }
+.cve-badge { display: inline-block; background: var(--accent); color: #fff; font-family: monospace; font-size: 0.78rem; padding: 1px 6px; border-radius: 4px; vertical-align: middle; }
+.cve-tag { background: var(--tag-bg); color: var(--accent); padding: 1px 6px; border-radius: 4px; font-size: 0.78rem; }
+pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-x: auto; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--accent); color: var(--muted); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.cve-footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 32px; }
+`.trim();
+	const script = `
+(function(){
+  var input = document.getElementById('cve-search');
+  if (!input) return;
+  input.addEventListener('input', function(){
+    var q = (input.value || '').toLowerCase().trim();
+    var docs = document.querySelectorAll('.cve-doc');
+    docs.forEach(function(el){
+      if (!q) { el.style.display = ''; return; }
+      var hay = (el.getAttribute('data-id') + ' ' + el.getAttribute('data-title') + ' ' + el.getAttribute('data-path') + ' ' + el.getAttribute('data-tags') + ' ' + el.textContent).toLowerCase();
+      el.style.display = hay.indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+})();
+`.trim();
+	return [
+		`<!DOCTYPE html>`,
+		`<html lang="en">`,
+		`<head>`,
+		`  <meta charset="UTF-8" />`,
+		`  <meta name="viewport" content="width=device-width, initial-scale=1.0" />`,
+		`  <title>${escapeXml(input.title)}${escapeXml(partBadge)}</title>`,
+		`  <style>${css}</style>`,
+		`</head>`,
+		`<body>`,
+		`  <header class="cve-topbar">`,
+		`    <div>`,
+		`      <h1 class="cve-title">${escapeXml(input.title)}${escapeXml(partBadge)}</h1>`,
+		`      <div class="cve-stats"><strong>${escapeXml(input.profileName)}</strong> · ${formatCount(input.stats.kept)} notes · ${formatCount(input.stats.words)} words · ~${formatCount(input.stats.tokens)} tokens · ${escapeXml(input.generatedAt.toISOString().slice(0, 10))}</div>`,
+		`    </div>`,
+		`    <input id="cve-search" class="cve-search" type="search" placeholder="Filter notes by text, #tag, or S01…" />`,
+		`  </header>`,
+		`  <main class="cve-shell">`,
+		input.preambleHtml,
+		input.documentsHtml,
+		input.footerText ? `    <footer class="cve-footer">${escapeXml(input.footerText)}</footer>` : "",
+		`  </main>`,
+		`  <script>${script}</script>`,
+		`</body>`,
+		`</html>`,
+	]
+		.filter(Boolean)
+		.join("\n");
 }
 
 export { stringifyFrontmatter };

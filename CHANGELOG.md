@@ -4,6 +4,44 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 semantic versioning.
 
+## [1.1.0] — 2026-10-02
+
+### Added
+- **Smart Query DSL & BM25F + Graph Spreading Activation (`src/core/intel/focus.ts`)**:
+  - Quoted phrase matching (`"reciprocal rank fusion"`), prefix/stem matching (`rerank` ↔ `reranking`), and 2-character technical acronym support (`AI`, `ML`, `DB`, `UI`, `Go`, `TS`).
+  - Inline query operators: `tag:x`, `-tag:y`, `#x`, `path:Folder/`, `-path:Archive/`, `title:Atlas`, `has:code`, `has:links`, `has:embeds`, `has:headings`, `-term` negation, and `hops:1` / `+links` graph expansion.
+- **Contradiction & Temporal/Metric Drift Detector (`src/core/intel/contradictions.ts`)**:
+  - Automatically detects conflicting numeric metrics (`Recall@10: 0.78` vs `0.86`, `chunk overlap = 80 tokens` vs `128 tokens`), status reversals (`enabled` vs `disabled`), and references to `deprecated`/`archived` notes across related notes, ordered chronologically (`older` → `newer`) in the Knowledge Map, AI Instructions, Export Report, and Vault Explorer.
+- **Deep Graph Topology (`src/core/intel/graph.ts`, `src/core/intel/knowledgeMap.ts`)**:
+  - HITS (`hubScore` and `authorityScore`) separating Maps of Content (`mocs`) from foundational authorities, folder-spanning `bridges`, **Phantom Concepts** (`phantoms`: missing notes cited across multiple notes), Note Title & Alias link resolution fallback, and Mermaid `graph LR` topology diagrams (`knowledgeMapToMermaid`).
+- **Native Obsidian `.canvas` Ingestion & Offline Dataview DQL Materialization (`src/core/markdown/canvas.ts`, `src/core/markdown/dataview.ts`)**:
+  - Parses `.canvas` JSON spatial boards into structured Markdown: resolves visual `group` containment, orders cards top-to-bottom/left-to-right, converts file cards into `[[wiki-links]]`, and renders directed `edges` under `## Connections`.
+  - Evaluates ` ```dataview ` `LIST` and `TABLE [WITHOUT ID]` queries (`FROM`, `WHERE`, `SORT`, `LIMIT`) offline against the analysed corpus and materializes them into real Markdown lists and GFM tables before export.
+- **Frontmatter Property Schema & Open Tasks/Questions Harvester (`src/core/intel/schema.ts`, `src/core/intel/tasks.ts`)**:
+  - Automatically infers the YAML frontmatter property schema across bundled notes (keys, inferred types `string`/`number`/`boolean`/`date`/`list`, note counts, and top values).
+  - Harvests and deduplicates unchecked/in-progress Markdown tasks (`- [ ]`, `- [/]`), `TODO`/`FIXME`/`BLOCKER`/`QUESTION` markers, and unanswered questions under `## Open questions` / `## Blockers` headings.
+- **MMR Diversity-Aware Extractive Summarization (`src/core/condense/summarize.ts`)**:
+  - Added Maximal Marginal Relevance (`method: "mmr"`) to balance sentence relevance against lexical/stem redundancy so summaries cover distinct facets of long notes.
+- **Active Credential & PII Redaction (`src/core/intel/safety.ts`)**:
+  - Expanded detection for Hugging Face tokens, Stripe keys, npm tokens, database connection URIs, and multi-line PEM private keys.
+  - Added `redactSecretsInText` and `condensation.redactSecrets` (plus a **Copy redacted** button in `PreviewModal` and a toggle in `ExportDialog`) to scrub secrets in-place with `[REDACTED: …]` placeholders.
+- **Interactive Self-Contained HTML Bundle (`format: "html"`) & `claude-xml` Profile**:
+  - Standalone dark/light HTML reader bundle with instant client-side search across text, `#tags`, and `S01` citation IDs.
+  - Built-in **Claude XML context** (`claude-xml`) profile tailored for 180k-token XML reasoning.
+- **Vault Intelligence & Health Explorer (`VaultExplorerModal`) & Upgraded `PreviewModal`**:
+  - New command `Explore vault intelligence, graph & health` with 4 interactive tabs (*Overview & schema*, *Graph & phantoms*, *Duplicates & boilerplate*, *Drift & open items*) and 1-click theme slice export.
+  - `PreviewModal` now includes interactive view tabs (*Bundle*, *Pipeline funnel*, *Export report*, *AI instructions*).
+  - Profile JSON export/import in `ExportSettingsTab`, and a headless Node CLI (`src/cli.ts`, `npm run cli`, supporting `--intel` and `--json`).
+
+### Fixed
+- Fixed exact duplicate classification bug in `src/core/condense/dedupe.ts` where `docs[member].hash` was compared against `docs[representative].file.path` instead of `.hash`, causing all exact duplicates to be labeled `"near"`.
+- Fixed `orderSelection` in `src/core/pipeline.ts` where `order.by === "centrality"` sorted by word count instead of graph centrality, and `groupByFolder` only ran as a tie-breaker after `order.by`.
+- Fixed phrase matching in `src/core/intel/focus.ts` where `heading.has(phrase)` checked a single-word `Set` for a multi-word space-separated string.
+- Fixed `allocateBudget` in `src/core/pack/budget.ts` ignoring `maxWords` when `maxTokens` was `0`.
+- Fixed cross-profile output ingestion in `selectCandidates` (`src/core/pipeline.ts`) when multiple profiles write to sibling `Exports/*` folders.
+- Fixed `normalizeSettings` and `manifest.ts` throwing `TypeError` when `state.profiles` was `null` or `state.history` contained malformed entries.
+- Replaced `window.prompt` in `ExportDialog` (unsupported in Electron/Obsidian desktop) with an inline numeric input and made dialog scope estimation profile-aware.
+
 ## [1.0.0] — 2026-02-01
 
 First complete release.

@@ -19,6 +19,7 @@ import type {
 import { asDate, asStringArray, normalizeTag, parseFrontmatter } from "../frontmatter";
 import { contentHash, hash32, isTextTarget, slugify, unique } from "../util";
 import { type LineSink } from "../condense/boilerplate";
+import { convertCanvasToMarkdown } from "./canvas";
 import { extractLinksFromLine } from "./links";
 import {
 	countWords,
@@ -82,6 +83,9 @@ export function analyzeDocument(file: SourceFile, text: string, options: Analyze
 	const opts = { ...DEFAULT_OPTIONS, ...options };
 	const sink = opts.lineSink;
 	sink?.beginDocument();
+	if (file.ext === "canvas" || file.path.toLowerCase().endsWith(".canvas")) {
+		text = convertCanvasToMarkdown(text, file.path);
+	}
 	const lines = scanLines(text);
 	const frontmatter = parseFrontmatter(text);
 	const bodyStart = frontmatter.present ? frontmatter.endLine : 0;

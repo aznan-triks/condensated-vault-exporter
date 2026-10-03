@@ -10,9 +10,11 @@
  *   6. cosmetic cleanup (blank lines, trailing spaces, trimming).
  */
 
-import type { ExportFormat, TransformOptions } from "../types";
+import type { DocAnalysis, ExportFormat, TransformOptions } from "../types";
 import { basename, stripExtension } from "../util";
 import { stripBoilerplate, type BoilerplateOptions } from "../condense/boilerplate";
+import { convertCanvasToMarkdown } from "./canvas";
+import { materializeDataviewBlocks } from "./dataview";
 import { extractLinksFromLine, removeInlineTags } from "./links";
 import {
 	collapseBlankLines,
@@ -54,6 +56,8 @@ export interface TransformContext {
 	resolver?: ContentResolver;
 	transclusion?: TransclusionOptions;
 	boilerplate?: { hashes: Set<number>; exactHashes?: Set<number>; options: BoilerplateOptions };
+	/** Analysed corpus documents used to materialize Dataview LIST/TABLE queries offline. */
+	corpus?: DocAnalysis[];
 }
 
 export interface TransformStats {
@@ -100,6 +104,10 @@ export async function transformDocument(
 	const warnings: string[] = [];
 	const inlineTags: string[] = [];
 
+	if (context.path.toLowerCase().endsWith(".canvas")) {
+		rawText = convertCanvasToMarkdown(rawText, context.path);
+	}
+
 	// -- 1. frontmatter -------------------------------------------------------
 	const { body, frontmatterRaw } = splitFrontmatterBlock(rawText);
 
@@ -121,10 +129,13 @@ export async function transformDocument(
 		}
 	}
 
-	// -- 3. multi-line noise --------------------------------------------------
+	// -- 3. multi-line noise & offline Dataview materialization ---------------
 	if (options.stripTemplaterExpressions) text = text.replace(/<%.*?%>/gs, "");
 	if (options.stripObsidianComments) text = text.replace(/%%[\s\S]*?%%/g, "");
 	if (options.stripHtmlComments) text = text.replace(/<!--[\s\S]*?-->/g, "");
+	if (context.corpus && context.corpus.length > 0 && text.includes("dataview")) {
+		text = materializeDataviewBlocks(text, context.corpus).text;
+	}
 	if (options.stripDataviewBlocks) text = stripDataviewBlocks(text);
 
 	// -- 4. per-line rewriting ------------------------------------------------

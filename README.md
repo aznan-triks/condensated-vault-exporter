@@ -62,8 +62,10 @@ cp main.js manifest.json styles.css <vault>/.obsidian/plugins/condensated-vault-
 - **`Ctrl-P` → “Copy the bundle to the clipboard”** — paste straight into a chat.
 - **`Ctrl-P` → “Export every profile”** — one sweep over all profiles, with the analysis cache shared between them and profiles whose scope has not changed skipped. A second notice summarises what happened.
 - **Right-click a note** → *Export this note and its links* — a bundle scoped to that note's neighbourhood.
-- **A topic in the dialog** → export only what the vault says about “retrieval evaluation”.
+- **A topic in the dialog** → export only what the vault says about “retrieval evaluation”, or combine free text with structured operators (`"rank fusion" tag:research -draft path:Projects/ has:code hops:1`).
+- **`Ctrl-P` → “Explore vault intelligence, graph & health”** — interactive 4-tab dashboard showing thematic clusters, central hubs, Maps of Content, bridge notes, missing **phantom concepts** cited across the vault, duplicate clusters, boilerplate lines, and **temporal metric drift / conflicting claims** between older and newer notes.
 - **`Ctrl-P` → “Show export status”** — every profile, what it last produced, and what changed since.
+- **Headless CLI (`npm run cli -- <vault-dir>`)** — run any profile, topic query, secret redaction, or HTML/XML/JSONL export directly from the terminal or CI without launching Obsidian.
 
 The preview shows the exact text, part by part, with the numbers behind the decisions: notes kept/dropped and why, duplicates found, boilerplate lines removed, tokens per part, and every warning the run produced.
 
@@ -186,9 +188,10 @@ A profile is a complete recipe — sources, filters, condensation, packaging, ou
 | **RAG chunks** | Embedding pipelines | JSON Lines, ~1k-token chunks with overlap, metadata intact, no summaries |
 | **Clean mirror** | A tidy export of the folder | One cleaned file per note: transclusions resolved, callouts unwrapped, dataview noise gone |
 | **Full archive** | Backup / grep / hand-off | Everything, uncondensed, one file |
-| **Study guide** | Learning a subject | Least-connected-but-central notes first, merged duplicates, glossary |
+| **Study guide** | Learning a subject | Central notes first, merged duplicates, glossary |
+| **Claude XML context** | Claude Projects / long-context XML reasoning | Structured `<document>` XML parts capped at 180k tokens with MMR diversity summaries, knowledge map, and citation IDs |
 
-Everything editable in the settings tab: folders and globs, tag/date/word filters, ordering, what to strip or keep, dedupe mode and threshold, summarisation ratio, boilerplate rules, format (Markdown, plain, JSON, JSONL, XML), splitting, overlap, table of contents, corpus map, citation ids, output folder, file-name template, incremental mode, destination limits.
+Everything editable in the settings tab (and shareable via **Copy / Import Profile JSON**): folders and globs, tag/date/word filters, ordering (path, title, modified, created, length, PageRank centrality, information density, composite value score), what to strip or keep, dedupe mode and threshold, summarisation method (`centroid`, `keypoints`, `mmr`, `lead`) and ratio, boilerplate rules, credential redaction, format (Markdown, Interactive HTML, plain, JSON, JSONL, XML), splitting, overlap, table of contents, corpus map, citation ids, output folder, file-name template, incremental mode, destination limits.
 
 Machine formats stay machine-readable when a note is bigger than a part: JSONL
 records, JSON documents and XML `<document>` elements are cut into several
@@ -205,9 +208,9 @@ embedding pipeline wants.
    - *Duplicates*: MinHash + LSH banding finds candidates; short notes are compared exactly. A note that is an **extract** of a longer one is caught by a containment estimate and an inverted index over shingle hashes, not only by similarity.
    - *Boilerplate*: a line is removed when its digit-free template repeats across at least *N* notes, or when it repeats verbatim. Lines whose digits carry meaning (`Score: 47`) survive.
    - *Stubs* and *empty notes* are dropped with a reason.
-4. **Clean and measure** — the surviving notes are read and transformed *before* the budget is decided, so it works from the size the file will really have.
-5. **Rank and budget** — the requested order is the priority; the token budget drops by value (centrality, signal, recency) and can summarise before dropping. Every included note is charged for its framing (heading, source line, citation, manifest entry, contents line), which is why a profile either fills its budget or says why it could not.
-6. **Package** — parts are filled against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
+4. **Clean, materialize & measure** — the surviving notes are read and transformed *before* the budget is decided, so it works from the size the file will really have. Standard ` ```dataview ` `LIST` and `TABLE` queries are evaluated offline against the analysed corpus and materialized into Markdown lists and GFM tables; `.canvas` spatial boards are converted into structured Markdown with group hierarchy and directed connections.
+5. **Rank and budget** — the requested order is the priority; the token budget drops by value (centrality, signal, recency) and can summarise before dropping (using `centroid`, `keypoints`, `mmr` diversity, or `lead`). Every included note is charged for its framing (heading, source line, citation, manifest entry, contents line), which is why a profile either fills its budget or says why it could not.
+6. **Synthesize corpus intelligence & package** — builds the Knowledge Map (thematic clusters, HITS hubs/authorities, folder-bridging notes, phantom missing concepts, frontmatter property schema, open tasks/blockers/questions, temporal metric drift, and Mermaid topology diagrams), then packs parts against the *effective* budget (part limit minus header, map and footer), splitting at headings, paragraphs, sentences or words, never inside a code fence, with optional overlap taken from whole blocks.
 7. **Write** — parts, a `.manifest.json` with per-note hashes, an `.index.md` when there are several parts, and — when the profile asks for them — the `.instructions.md` prompt and the `.report.md` audit trail. Incremental runs only include what changed.
 
 ### The instructions file

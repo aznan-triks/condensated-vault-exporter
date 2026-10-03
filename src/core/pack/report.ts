@@ -12,6 +12,8 @@
 import type { BundleLimits, ExportDelta, PlanStats } from "../types";
 import { groupSecretFindings, type SecretFinding } from "../intel/safety";
 import type { AttachmentInventory } from "../intel/attachments";
+import type { DriftFinding } from "../intel/contradictions";
+import type { PhantomNote } from "../intel/graph";
 import type { LimitViolation } from "./limits";
 import type { TransformStats } from "../markdown/transforms";
 import { formatBytes, formatCount, plural } from "../util";
@@ -51,6 +53,8 @@ export interface ReportGraph {
 	hubs: { path: string; inbound: number }[];
 	/** Outgoing targets that do not resolve inside the bundle. */
 	broken: number;
+	/** Missing notes cited across the corpus. */
+	phantoms?: PhantomNote[];
 }
 
 export interface ExportReportInput {
@@ -75,6 +79,8 @@ export interface ExportReportInput {
 	secrets?: { findings: SecretFinding[]; truncated: boolean };
 	/** Embedded files the bundle can only point at. */
 	attachments?: AttachmentInventory;
+	/** Conflicting figures or status reversals detected across bundled notes. */
+	contradictions?: DriftFinding[];
 }
 
 /** How many individual lines of a list the report spells out. */
@@ -235,8 +241,34 @@ export function buildExportReport(input: ExportReportInput): string {
 		if (topHubs.length > 0) {
 			lines.push(`- Most referenced: ${topHubs.map((hub) => `\`${hub.path}\` (${hub.inbound})`).join(", ")}`);
 		}
+		const multiPhantoms = (graph.phantoms ?? []).filter((p) => p.count >= 2).slice(0, 5);
+		if (multiPhantoms.length > 0) {
+			lines.push(
+				`- Missing concepts cited multiple times: ${multiPhantoms
+					.map((p) => `“${p.target}” (${p.count}×)`)
+					.join(", ")}`,
+			);
+		}
 		if (graph.orphans.length > 0) {
 			lines.push(...capped(graph.orphans, (path) => bullet(path, " — nothing links to or from this note")));
+		}
+		lines.push("");
+	}
+
+	// -- temporal drift & contradictions ---------------------------------------
+	if (input.contradictions && input.contradictions.length > 0) {
+		lines.push("## 🔄 Temporal drift & conflicting figures", "");
+		lines.push(
+			"The following subjects have different values or states across notes in this bundle (ordered from older note to newer note):",
+			"",
+		);
+		for (const finding of input.contradictions.slice(0, MAX_LISTED)) {
+			lines.push(
+				`- **${finding.subject}**: \`${finding.older.path}\` (${finding.older.value}) → \`${finding.newer.path}\` (${finding.newer.value})`,
+			);
+		}
+		if (input.contradictions.length > MAX_LISTED) {
+			lines.push(`- …and ${formatCount(input.contradictions.length - MAX_LISTED)} more`);
 		}
 		lines.push("");
 	}

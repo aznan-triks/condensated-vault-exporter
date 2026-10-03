@@ -12,7 +12,7 @@ import { basename } from "./core/util";
 import { normalizeSettings, compactSettings, type PluginSettings } from "./obsidian/settings";
 import { ExportSettingsTab } from "./obsidian/settingsTab";
 import { ExportRunner } from "./obsidian/runner";
-import { ExportDialog, PreviewModal, StatusModal, openFirstResult } from "./obsidian/modals";
+import { ExportDialog, PreviewModal, StatusModal, VaultExplorerModal, openFirstResult } from "./obsidian/modals";
 
 export default class CondensatedVaultExporter extends Plugin {
 	settings!: PluginSettings;
@@ -85,6 +85,11 @@ export default class CondensatedVaultExporter extends Plugin {
 			id: "export-status",
 			name: "Show export status",
 			callback: () => this.openStatus(),
+		});
+		this.addCommand({
+			id: "explore-vault-intelligence",
+			name: "Explore vault intelligence, graph & health",
+			callback: () => this.openExplorer(),
 		});
 		this.addCommand({
 			id: "copy-instructions",
@@ -283,13 +288,21 @@ export default class CondensatedVaultExporter extends Plugin {
 
 	/* ------------------------------------------------------------------ */
 
-	private openDialog(target?: string): void {
+	private openDialog(target?: string, focusQuery?: string): void {
 		new ExportDialog(
 			this.app,
 			this.settings,
 			this.runner,
 			(submitted, mode) => void this.execute(submitted.profile, mode, submitted.target),
-			{ target, profileId: this.settings.activeProfileId },
+			{ target, profileId: this.settings.activeProfileId, focusQuery },
+		).open();
+	}
+
+	private openExplorer(target = ""): void {
+		new VaultExplorerModal(
+			this.app,
+			() => this.runner.analyzeVaultIntelligence(target),
+			(focusQuery) => this.openDialog(target === "" ? undefined : target, focusQuery),
 		).open();
 	}
 

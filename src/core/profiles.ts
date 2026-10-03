@@ -93,6 +93,7 @@ export const DEFAULT_CONDENSATION: CondensationOptions = {
 	},
 	dropStubs: { enabled: true, maxWords: 12, linksOnly: true },
 	inlineTransclusions: true,
+	redactSecrets: false,
 };
 
 export const DEFAULT_PACKAGING: PackagingOptions = {
@@ -389,6 +390,58 @@ export const BUILTIN_PROFILES: ProfileRecipe[] = [
 				output: { ...DEFAULT_OUTPUT, folder: "Exports/Study" },
 			}),
 	},
+	{
+		id: "claude-xml",
+		name: "Claude XML context",
+		description: "Structured <document> XML bundle with knowledge map and 180k token budget for Claude.",
+		rationale:
+			"Claude models reason particularly well over XML-delimited documents with explicit <metadata>, <relations> and <references> tags. This profile packages the corpus into valid XML parts capped at 180 000 tokens and uses MMR diversity summarization when the vault exceeds the context window.",
+		build: () =>
+			baseProfile({
+				id: "claude-xml",
+				name: "Claude XML context",
+				description: "Structured <document> XML bundle with knowledge map and 180k token budget for Claude.",
+				builtin: true,
+				order: { ...DEFAULT_ORDER, by: "centrality", direction: "desc", clusterSimilar: true },
+				condensation: {
+					...DEFAULT_CONDENSATION,
+					summarize: {
+						...DEFAULT_CONDENSATION.summarize,
+						enabled: true,
+						method: "mmr",
+						ratio: 0.4,
+						minWords: 160,
+						keepHeadings: true,
+					},
+				},
+				packaging: {
+					...DEFAULT_PACKAGING,
+					format: "xml",
+					includeKnowledgeMap: true,
+					includeGlossary: true,
+					includeToc: false,
+					citationIds: true,
+					manifestSidecar: false,
+					instructionsFile: true,
+					reportFile: true,
+					chunking: {
+						...DEFAULT_PACKAGING.chunking,
+						mode: "maxTokens",
+						maxTokens: 180_000,
+						maxWords: 0,
+						maxChars: 0,
+					},
+				},
+				limits: {
+					...UNLIMITED_LIMITS,
+					label: "Claude",
+					maxParts: 20,
+					maxTokensPerPart: 180_000,
+					maxTotalTokens: 200_000,
+				},
+				output: { ...DEFAULT_OUTPUT, folder: "Exports/Claude", fileNameTemplate: "{{folder}}-claude-{{date}}" },
+			}),
+	},
 ];
 
 /** Creates a fresh copy of a built-in profile (never shares mutable state). */
@@ -459,6 +512,7 @@ const FORMAT_LABELS: Record<ExportProfile["packaging"]["format"], string> = {
 	json: "JSON",
 	jsonl: "JSON Lines",
 	xml: "XML",
+	html: "HTML",
 };
 
 export function describeProfile(profile: ExportProfile): string {

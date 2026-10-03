@@ -243,9 +243,6 @@ export function detectDuplicates(
 			const key = pairKey(member, representative);
 			const similarity = bestSimilarity.get(key) ?? options.threshold;
 			weakest = Math.min(weakest, similarity);
-			if (docs[member].hash !== docs[representative].file.path) {
-				if (kind === "exact") kind = "near";
-			}
 			if (docs[member].hash !== docs[representative].hash) {
 				if (kind === "exact") kind = "near";
 				if (subsetPairs.has(key)) kind = "subset";

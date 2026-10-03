@@ -1,7 +1,7 @@
 /**
  * Extractive summarization, offline and dependency free.
  *
- * Three strategies, all deterministic:
+ * Four strategies, all deterministic:
  *
  *  - `lead`      — the opening sentences (fast, works well for notes).
  *  - `centroid`  — sentences scored by the frequency of their content words
@@ -9,6 +9,10 @@
  *                  best represent the note's vocabulary.
  *  - `keypoints` — sentences that mention the note's own key terms, headings
  *                  or definition patterns ("X is/means/refers to…").
+ *  - `mmr`       — Maximal Marginal Relevance: combines relevance (centroid +
+ *                  keypoints + numeric/definition signals) with a Jaccard
+ *                  redundancy penalty so selected sentences cover distinct
+ *                  facets of the note instead of repeating the same point.
  *
  * The result keeps the original wording (extractive), so a human verifying the
  * bundle still recognises their own notes — a property abstractive summaries
@@ -20,7 +24,7 @@ import { countWords, splitSentences, stripInlineMarkup } from "../markdown/synta
 
 export interface SummarizeOptions {
 	enabled: boolean;
-	method: "lead" | "centroid" | "keypoints";
+	method: "lead" | "centroid" | "keypoints" | "mmr";
 	mode: "ratio" | "sentences";
 	ratio: number;
 	sentences: number;
@@ -72,6 +76,9 @@ export function summarize(text: string, options: SummarizeOptions, input: Summar
 		case "keypoints":
 			chosen = selectKeypoints(sentences, budget, input.headings, input.topTerms);
 			break;
+		case "mmr":
+			chosen = selectMmr(sentences, budget, input.headings, input.topTerms);
+			break;
 		case "lead":
 		default:
 			chosen = range(budget);
@@ -107,7 +114,7 @@ function selectCentroid(sentences: string[], budget: number): number[] {
 		for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
 	}
 	const maxFreq = Math.max(1, ...frequencies.values());
-	const scored: Scored[] = sentences.map((sentence, index) => {
+	const scored: Scored[] = sentences.map((_sentence, index) => {
 		const tokens = tokensPerSentence[index];
 		if (tokens.length === 0) return { index, score: 0 };
 		let score = 0;
@@ -137,7 +144,6 @@ function selectKeypoints(
 	}
 	const definitionPattern = /\b(is|are|was|were|means|refers to|consists of|defined as|stands for)\b/i;
 	const scored: Scored[] = sentences.map((sentence, index) => {
-		const lower = sentence.toLowerCase();
 		let score = 0;
 		for (const token of contentTokens(sentence)) if (terms.has(token)) score += 1;
 		if (definitionPattern.test(sentence)) score += 1.5;
@@ -148,6 +154,94 @@ function selectKeypoints(
 		return { index, score };
 	});
 	return pickTop(scored, budget, [0]);
+}
+
+/**
+ * Maximal Marginal Relevance (MMR): greedily selects sentences that balance
+ * intrinsic relevance (`lambda = 0.68`) against lexical similarity (`1 - lambda`)
+ * to already-selected sentences.
+ */
+function selectMmr(
+	sentences: string[],
+	budget: number,
+	headings: Heading[],
+	topTerms: string[],
+	lambda = 0.55,
+): number[] {
+	const frequencies = new Map<string, number>();
+	const tokenSets: Set<string>[] = [];
+	const simSets: Set<string>[] = [];
+	for (const sentence of sentences) {
+		const tokens = contentTokens(sentence);
+		tokenSets.push(new Set(tokens));
+		const simTokens = new Set<string>();
+		for (const token of tokens) {
+			frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
+			simTokens.add(token);
+			if (token.length >= 5) simTokens.add( token.slice(0, 5));
+		}
+		simSets.push(simTokens);
+	}
+	const maxFreq = Math.max(1, ...frequencies.values());
+	const terms = new Set(topTerms.map((t) => t.toLowerCase()));
+	for (const heading of headings) {
+		for (const token of contentTokens(heading.text)) terms.add(token);
+	}
+	const definitionPattern = /\b(is|are|was|were|means|refers to|consists of|defined as|stands for)\b/i;
+
+	const rawRel = sentences.map((sentence, index) => {
+		const tokens = tokenSets[index];
+		if (tokens.size === 0) return 0;
+		let centroid = 0;
+		let keyHits = 0;
+		for (const token of tokens) {
+			centroid += (frequencies.get(token) ?? 0) / maxFreq;
+			if (terms.has(token)) keyHits += 1;
+		}
+		let score = (centroid + keyHits * 1.2) / Math.sqrt(tokens.size);
+		if (definitionPattern.test(sentence)) score += 0.8;
+		if (/\d/.test(sentence)) score += 0.25;
+		score *= 1 + (1 - index / sentences.length) * 0.25;
+		return score;
+	});
+
+	const maxRel = Math.max(1e-6, ...rawRel);
+	const relevance = rawRel.map((r) => r / maxRel);
+
+	const chosen: number[] = [0];
+	const chosenSet = new Set<number>(chosen);
+
+	while (chosen.length < budget) {
+		let bestIdx = -1;
+		let bestMmr = Number.NEGATIVE_INFINITY;
+		for (let i = 0; i < sentences.length; i++) {
+			if (chosenSet.has(i)) continue;
+			let maxSim = 0;
+			for (const j of chosen) {
+				const sim = jaccardSets(simSets[i], simSets[j]);
+				if (sim > maxSim) maxSim = sim;
+			}
+			const mmr = lambda * relevance[i] - (1 - lambda) * maxSim;
+			if (mmr > bestMmr) {
+				bestMmr = mmr;
+				bestIdx = i;
+			}
+		}
+		if (bestIdx === -1) break;
+		chosen.push(bestIdx);
+		chosenSet.add(bestIdx);
+	}
+
+	return chosen.sort((a, b) => a - b);
+}
+
+function jaccardSets(a: Set<string>, b: Set<string>): number {
+	if (a.size === 0 || b.size === 0) return 0;
+	let inter = 0;
+	const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+	for (const item of small) if (large.has(item)) inter++;
+	const union = a.size + b.size - inter;
+	return union === 0 ? 0 : inter / union;
 }
 
 function pickTop(scored: Scored[], budget: number, alwaysInclude: number[]): number[] {
