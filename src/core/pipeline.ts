@@ -53,9 +53,11 @@ import { detectDuplicates, type DedupeOutcome } from "./condense/dedupe";
 import { summarize } from "./condense/summarize";
 import { buildRelatedIndex, buildThemes, type RelatedIndex } from "./intel/similarity";
 import { rankByFocus } from "./intel/focus";
-import { buildLinkGraph, type LinkGraph } from "./intel/graph";
+import { buildLinkGraph, type LinkGraph, type PhantomNote } from "./intel/graph";
 import { buildKnowledgeMap, type KnowledgeMap } from "./intel/knowledgeMap";
-import { scanForSecrets } from "./intel/safety";
+import { detectContradictions } from "./intel/contradictions";
+import { extractOpenItems } from "./intel/tasks";
+import { redactSecretsInText, scanForSecrets } from "./intel/safety";
 import { neighbourhoodScope, type Neighbourhood } from "./scope";
 import { buildInstructions } from "./pack/instructions";
 import { buildExportReport, type ReportEntry, type ReportGraph } from "./pack/report";
@@ -260,7 +262,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		progress({ phase: "condense", progress: 0.06, message: `Ranking notes for “${focus.query}”…` });
 		check();
 		const keyTerms = buildKeyTerms(selected);
-		const ranked = rankByFocus(selected, keyTerms, focus.query, focus.maxNotes);
+		const ranked = rankByFocus(selected, keyTerms, focus.query, focus.maxNotes, { graph });
 		if (ranked.matched === 0) {
 			warnings.push(
 				`🎯 Nothing in the selection matches “${focus.query}” — the bundle contains only the corpus map. Check the spelling, or clear the focus to export everything.`,
@@ -334,6 +336,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				inline: profile.condensation.inlineTransclusions,
 			},
 			boilerplate: kbContext,
+			corpus: analyses,
 		});
 		transformStats.push(transformed.stats);
 		warnings.push(...transformed.warnings.slice(0, 5));
@@ -614,6 +617,12 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		included.map((entry) => entry.doc),
 		allFiles,
 	);
+	const bundleNoteEntries = rendered
+		.filter((note) => note.id !== "" && !note.duplicateOf)
+		.map((note) => ({ analysis: analysisByPath.get(note.path)!, body: note.body }))
+		.filter((entry) => entry.analysis);
+	const contradictions = detectContradictions(bundleNoteEntries, graph);
+	const openItems = extractOpenItems(bundleNoteEntries);
 
 	const wantKnowledgeMap = profile.packaging.includeKnowledgeMap || profile.packaging.instructionsFile;
 	const knowledgeMap = wantKnowledgeMap
@@ -644,6 +653,8 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 				generatedAt: new Date(deps.now?.() ?? Date.now()),
 				profileName: profile.name,
 				glossary,
+				contradictions,
+				openItems,
 			})
 		: undefined;
 
@@ -811,9 +822,26 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 	// A bundle is meant to leave the machine; say so if it carries credentials.
 	const secrets = scanForSecrets(parts.map((part, index) => ({ index, content: part.content })));
 	if (secrets.findings.length > 0) {
-		warnings.push(
-			`⚠️ ${secrets.findings.length} possible credential(s) were found in the bundle — see the export report.`,
-		);
+		if (profile.condensation.redactSecrets) {
+			let redactedTotal = 0;
+			for (const part of parts) {
+				const scrubbed = redactSecretsInText(part.content);
+				if (scrubbed.redactedCount > 0) {
+					part.content = scrubbed.text;
+					part.chars = part.content.length;
+					part.words = countWords(part.content);
+					part.tokens = estimateTokens(part.content).tokens;
+					redactedTotal += scrubbed.redactedCount;
+				}
+			}
+			warnings.push(
+				`🛡️ Redacted ${redactedTotal} credential(s) in-place across the bundle — see the export report for details.`,
+			);
+		} else {
+			warnings.push(
+				`⚠️ ${secrets.findings.length} possible credential(s) were found in the bundle — see the export report.`,
+			);
+		}
 	}
 	warnings.push(...chunked.warnings);
 	warnings.push(...limitViolations.map((v) => `${v.severity === "error" ? "❌" : v.severity === "warning" ? "⚠️" : "ℹ️"} ${v.message}`));
@@ -891,9 +919,10 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		truncated: budget.truncated.length,
 		warnings,
 		delta: previousManifest ? delta : undefined,
-		graph: reportGraph(rendered),
+		graph: reportGraph(rendered, graph.phantoms),
 		secrets,
 		attachments,
+		contradictions,
 	});
 	const reportPath =
 		profile.packaging.reportFile && reportText !== ""
@@ -1007,6 +1036,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 		instructions: instructionsText ?? undefined,
 		report: reportText,
 		delta: previousManifest ? delta : undefined,
+		knowledgeMap,
 		manifest: {
 			...manifest,
 			parts: parts.map((p) => ({
@@ -1030,7 +1060,7 @@ export async function runExport(request: ExportRequest, deps: ExportDeps): Promi
 /*  Discovery                                                                  */
 /* -------------------------------------------------------------------------- */
 
-const NOTE_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
+const NOTE_EXTENSIONS = new Set(["md", "markdown", "mdx", "canvas"]);
 
 export interface CandidateSelection {
 	files: SourceFile[];
@@ -1047,7 +1077,11 @@ export function selectCandidates(
 	const roots = profile.targets.map(normalizeVaultPath).filter((t) => t !== "");
 	const filters = profile.filters;
 	const outputFolder = normalizeVaultPath(profile.output.folder);
-	const includePatterns = [...profile.include, "!**/*.excalidraw.md"];
+	const includePatterns = [
+		...profile.include,
+		...(profile.include.includes("**/*.md") ? ["**/*.canvas"] : []),
+		"!**/*.excalidraw.md",
+	];
 	const hasInclude = hasPositivePattern(includePatterns);
 
 	const selected: SourceFile[] = [];
@@ -1062,7 +1096,10 @@ export function selectCandidates(
 		// Cheap folder exclusions first (Obsidian internals, own output).
 		if (path.startsWith(".obsidian/") || path.includes("/.obsidian/")) continue;
 		if (path.startsWith(".trash/") || path.includes("/.trash/")) continue;
-		if (filters.excludeOutputFolder && outputFolder !== "" && (path === outputFolder || path.startsWith(outputFolder + "/"))) continue;
+		if (filters.excludeOutputFolder && outputFolder !== "") {
+			if (path === outputFolder || path.startsWith(outputFolder + "/")) continue;
+			if ((outputFolder === "Exports" || outputFolder.startsWith("Exports/")) && path.startsWith("Exports/")) continue;
+		}
 
 		// Roots & depth.
 		if (roots.length > 0 && !roots.some((root) => path === root || path.startsWith(root + "/"))) continue;
@@ -1232,7 +1269,11 @@ export function orderSelection(
 	);
 
 	const compare = (a: DocAnalysis, b: DocAnalysis): number => {
-		const result = compareBy(a, b, order);
+		if (order.groupByFolder) {
+			const folderCmp = naturalCompare(a.file.folder, b.file.folder);
+			if (folderCmp !== 0) return folderCmp;
+		}
+		const result = compareBy(a, b, order, centrality, scored);
 		if (result !== 0) return result * direction;
 		return naturalCompare(a.file.path, b.file.path);
 	};
@@ -1253,7 +1294,6 @@ export function orderSelection(
 	if (profile.filters.maxNotes !== null && profile.filters.maxNotes > 0 && entries.length > profile.filters.maxNotes) {
 		// The ordering *is* the priority: a cap keeps the first N notes in the
 		// requested order. (The token budget is what drops by value instead.)
-		const kept = entries.slice(0, profile.filters.maxNotes);
 		for (const entry of entries.slice(profile.filters.maxNotes)) {
 			entry.decision = { path: entry.doc.file.path, action: "drop", allowance: 0, reason: "max notes reached" };
 		}
@@ -1262,40 +1302,50 @@ export function orderSelection(
 	return entries;
 }
 
-function compareBy(a: DocAnalysis, b: DocAnalysis, order: ExportProfile["order"]): number {
-	let result = 0;
+function compareBy(
+	a: DocAnalysis,
+	b: DocAnalysis,
+	order: ExportProfile["order"],
+	centrality?: Map<string, number>,
+	scored?: Map<string, number>,
+): number {
 	switch (order.by) {
 		case "title":
-			result = naturalCompare(a.title, b.title);
-			break;
+			return naturalCompare(a.title, b.title);
 		case "modified":
-			result = (a.file.mtime || 0) - (b.file.mtime || 0);
-			break;
+			return (a.file.mtime || 0) - (b.file.mtime || 0);
 		case "created":
-			result = (a.file.ctime || 0) - (b.file.ctime || 0);
-			break;
+			return (a.file.ctime || 0) - (b.file.ctime || 0);
 		case "words":
-			result = a.stats.words - b.stats.words;
-			break;
+			return a.stats.words - b.stats.words;
 		case "frontmatter": {
 			const key = order.frontmatterKey || "order";
 			const av = a.frontmatter.data[key];
 			const bv = b.frontmatter.data[key];
-			result = compareValues(av, bv);
-			break;
+			return compareValues(av, bv);
 		}
-		case "centrality":
-			result = a.stats.words - b.stats.words; // replaced by score ordering below
-			break;
+		case "centrality": {
+			const ca = centrality?.get(a.file.path) ?? 0;
+			const cb = centrality?.get(b.file.path) ?? 0;
+			if (Math.abs(ca - cb) > 1e-9) return ca - cb;
+			const sa = scored?.get(a.file.path) ?? 0;
+			const sb = scored?.get(b.file.path) ?? 0;
+			if (Math.abs(sa - sb) > 1e-9) return sa - sb;
+			return a.stats.words - b.stats.words;
+		}
+		case "signal":
+			if (Math.abs(a.signal - b.signal) > 1e-9) return a.signal - b.signal;
+			return a.stats.words - b.stats.words;
+		case "value": {
+			const sa = scored?.get(a.file.path) ?? a.signal;
+			const sb = scored?.get(b.file.path) ?? b.signal;
+			if (Math.abs(sa - sb) > 1e-9) return sa - sb;
+			return a.signal - b.signal;
+		}
 		case "path":
 		default:
-			result = naturalCompare(a.file.path, b.file.path);
-			break;
+			return naturalCompare(a.file.path, b.file.path);
 	}
-	if (result === 0 && order.groupByFolder) {
-		result = naturalCompare(a.file.folder, b.file.folder);
-	}
-	return result;
 }
 
 function compareValues(a: FrontmatterValue | undefined, b: FrontmatterValue | undefined): number {
@@ -1552,6 +1602,8 @@ function extensionFor(format: ExportProfile["packaging"]["format"]): string {
 			return ".jsonl";
 		case "xml":
 			return ".xml";
+		case "html":
+			return ".html";
 		default:
 			return ".md";
 	}
@@ -1812,7 +1864,7 @@ function estimateOverhead(
 /* -------------------------------------------------------------------------- */
 
 /** The graph facts a report can act on: what links to what inside the bundle. */
-function reportGraph(rendered: RenderedNote[]): ReportGraph {
+function reportGraph(rendered: RenderedNote[], phantoms?: PhantomNote[]): ReportGraph {
 	const links = rendered.reduce((acc, note) => acc + (note.links?.length ?? 0), 0);
 	const orphans = rendered
 		.filter((note) => !note.duplicateOf && note.inbound === 0 && note.outbound === 0)
@@ -1823,7 +1875,7 @@ function reportGraph(rendered: RenderedNote[]): ReportGraph {
 		.slice(0, 8)
 		.map((note) => ({ path: note.path, inbound: note.inbound }));
 	const broken = rendered.reduce((acc, note) => acc + (note.outsideLinks ?? 0), 0);
-	return { links, orphans, hubs, broken };
+	return { links, orphans, hubs, broken, phantoms };
 }
 
 function buildManifest(

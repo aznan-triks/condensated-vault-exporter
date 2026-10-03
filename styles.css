@@ -169,3 +169,43 @@
 .cve-status-stale {
 	color: var(--text-warning);
 }
+
+/* Interactive modal tabs & funnel ------------------------------------------- */
+.cve-tab-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+	margin: var(--size-4-2) 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-bottom: var(--size-4-2);
+}
+
+.cve-tab-pill {
+	display: inline-flex;
+	align-items: center;
+	padding: 4px 12px;
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: pointer;
+	user-select: none;
+}
+
+.cve-tab-pill:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.cve-tab-pill.is-active {
+	background-color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: var(--font-medium);
+}
+
+.cve-funnel-view h3 {
+	margin-top: 0;
+}
+

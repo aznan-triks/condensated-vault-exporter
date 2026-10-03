@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "ci": "npm run typecheck && npm run test && node esbuild.config.mjs production",
     "bench": "vite-node bench/bench.ts",
-    "demo": "vite-node bench/demo.ts"
+    "demo": "vite-node bench/demo.ts",
+    "cli": "vite-node src/cli.ts"
   },
   "keywords": [
     "obsidian",

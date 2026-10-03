@@ -177,7 +177,9 @@ export function allocateBudget(docs: BudgetItem[], options: BudgetOptions): Budg
 	const summarized: string[] = [];
 	const truncated: string[] = [];
 
-	const budget = options.maxTokens > 0 ? options.maxTokens : Number.POSITIVE_INFINITY;
+	const tokenCap = options.maxTokens > 0 ? options.maxTokens : Number.POSITIVE_INFINITY;
+	const wordCap = options.maxWords > 0 ? Math.round(options.maxWords * 1.35) : Number.POSITIVE_INFINITY;
+	const budget = Math.min(tokenCap, wordCap);
 	const available = Math.max(0, budget - options.overheadTokens);
 	const perNote = Math.max(0, options.perNoteOverheadTokens);
 	const cap = options.perNoteOverheadCap > 0 ? options.perNoteOverheadCap : Number.POSITIVE_INFINITY;

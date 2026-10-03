@@ -85,7 +85,14 @@ export class ObsidianVaultPort implements VaultPort {
 			const files = this.app.vault.getFiles();
 			const list: SourceFile[] = [];
 			for (const file of files) {
-				if (file.extension !== "md" && file.extension !== "txt" && file.extension !== "mdx") continue;
+				if (
+					file.extension !== "md" &&
+					file.extension !== "txt" &&
+					file.extension !== "mdx" &&
+					file.extension !== "canvas"
+				) {
+					continue;
+				}
 				list.push(toSourceFile(file.path, file.stat.size, file.stat.mtime, file.stat.ctime));
 			}
 			list.sort((a, b) => a.path.localeCompare(b.path));

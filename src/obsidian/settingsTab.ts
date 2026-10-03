@@ -17,7 +17,7 @@ import type {
 	OrderBy,
 	OutputDestination,
 } from "../core/types";
-import { BUILTIN_PROFILES, describeProfile } from "../core/profiles";
+import { BUILTIN_PROFILES, describeProfile, normalizeProfile } from "../core/profiles";
 import { LIMIT_PRESETS, UNLIMITED } from "../core/pack/limits";
 import { formatCount } from "../core/util";
 import { duplicateProfile, type PluginSettings } from "./settings";
@@ -252,6 +252,53 @@ export class ExportSettingsTab extends PluginSettingTab {
 						this.display();
 					}),
 			);
+
+		let importJson = "";
+		new Setting(root)
+			.setName("Share or import profile JSON")
+			.setDesc("Copy the current profile as JSON, or paste a profile JSON recipe to import it.")
+			.addText((text) =>
+				text.setPlaceholder("Paste profile JSON here…").onChange((value) => {
+					importJson = value.trim();
+				}),
+			)
+			.addButton((button) =>
+				button.setButtonText("Import JSON").onClick(async () => {
+					if (!importJson) {
+						new Notice("Paste a profile JSON object into the field first.");
+						return;
+					}
+					try {
+						const parsed = JSON.parse(importJson) as Partial<ExportProfile>;
+						if (!parsed || typeof parsed !== "object") throw new Error("Not a JSON object");
+						const imported = normalizeProfile({
+							...parsed,
+							builtin: false,
+							id: `imported-${Date.now().toString(36)}`,
+							name: parsed.name ? `${parsed.name} (imported)` : "Imported profile",
+						});
+						this.settings.profiles.push(imported);
+						this.selectedId = imported.id;
+						await this.plugin.saveSettings();
+						this.plugin.syncProfileCommands();
+						this.display();
+						new Notice(`Imported profile “${imported.name}”.`);
+					} catch {
+						new Notice("Could not parse profile JSON.");
+					}
+				}),
+			)
+			.addButton((button) =>
+				button.setButtonText("Copy JSON").onClick(async () => {
+					const json = JSON.stringify({ ...profile, builtin: false }, null, 2);
+					try {
+						await navigator.clipboard.writeText(json);
+						new Notice(`Copied “${profile.name}” JSON to the clipboard.`);
+					} catch {
+						new Notice("Could not write to the clipboard.");
+					}
+				}),
+			);
 	}
 
 	private renderActiveProfile(root: HTMLElement): void {
@@ -455,7 +502,9 @@ export class ExportSettingsTab extends PluginSettingTab {
 					["modified", "Last modified"],
 					["created", "Created"],
 					["words", "Length"],
-					["centrality", "Most connected"],
+					["centrality", "Most connected (PageRank)"],
+					["signal", "Information density"],
+					["value", "Composite value score"],
 					["frontmatter", "Frontmatter key"],
 				];
 				for (const [value, label] of options) dropdown.addOption(value, label);
@@ -535,6 +584,18 @@ export class ExportSettingsTab extends PluginSettingTab {
 		new Setting(root)
 			.setName("Summarise long notes")
 			.setDesc("Extractive summaries keep the most representative sentences when a note is too long for the budget.")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("centroid", "Centroid (vocabulary)")
+					.addOption("keypoints", "Keypoints & definitions")
+					.addOption("mmr", "MMR (diverse facets)")
+					.addOption("lead", "Opening sentences")
+					.setValue(profile.condensation.summarize.method)
+					.onChange(async (value) => {
+						profile.condensation.summarize.method = value as "lead" | "centroid" | "keypoints" | "mmr";
+						await this.plugin.saveSettings();
+					}),
+			)
 			.addToggle((toggle) =>
 				toggle.setValue(profile.condensation.summarize.enabled).onChange(async (value) => {
 					profile.condensation.summarize.enabled = value;
@@ -550,6 +611,16 @@ export class ExportSettingsTab extends PluginSettingTab {
 						profile.condensation.summarize.ratio = value;
 						await this.plugin.saveSettings();
 					}),
+			);
+
+		new Setting(root)
+			.setName("Redact detected credentials")
+			.setDesc("Automatically replace API keys, tokens and private keys with [REDACTED] placeholders.")
+			.addToggle((toggle) =>
+				toggle.setValue(Boolean(profile.condensation.redactSecrets)).onChange(async (value) => {
+					profile.condensation.redactSecrets = value;
+					await this.plugin.saveSettings();
+				}),
 			);
 
 		new Setting(root)
@@ -580,10 +651,11 @@ export class ExportSettingsTab extends PluginSettingTab {
 
 		new Setting(root)
 			.setName("Format")
-			.setDesc("Markdown for humans and most AI tools, JSON/JSONL/XML for pipelines.")
+			.setDesc("Markdown for humans and most AI tools, HTML for interactive browser reading, JSON/JSONL/XML for pipelines.")
 			.addDropdown((dropdown) => {
 				const options: [ExportFormat, string][] = [
 					["markdown", "Markdown"],
+					["html", "Interactive HTML"],
 					["plain", "Plain text"],
 					["json", "JSON"],
 					["jsonl", "JSON Lines"],

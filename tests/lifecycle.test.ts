@@ -768,4 +768,26 @@ describe("export status", () => {
 		expect(modal.contentEl.textContent).toContain("NotebookLM");
 		modal.close();
 	});
+
+	it("analyzes vault intelligence and renders the VaultExplorerModal tabs", async () => {
+		const { fake, plugin } = bootApp();
+		await plugin.onload();
+		fake.ready();
+
+		const intel = await (plugin as unknown as { runner: { analyzeVaultIntelligence: () => Promise<{ map: { overview: { notes: number } } }> } }).runner.analyzeVaultIntelligence();
+		expect(intel.map.overview.notes).toBeGreaterThan(0);
+
+		const { VaultExplorerModal } = await import("../src/obsidian/modals");
+		const modal = new VaultExplorerModal(
+			fake.app as never,
+			() => (plugin as unknown as { runner: { analyzeVaultIntelligence: () => Promise<never> } }).runner.analyzeVaultIntelligence(),
+		);
+		modal.open();
+		for (let attempt = 0; attempt < 20 && modal.contentEl.querySelectorAll(".cve-tab-pill").length === 0; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		const pills = modal.contentEl.querySelectorAll(".cve-tab-pill");
+		expect(pills.length).toBe(4);
+		modal.close();
+	});
 });

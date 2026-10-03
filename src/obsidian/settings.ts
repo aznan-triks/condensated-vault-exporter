@@ -7,7 +7,7 @@
  * while user copies are stored verbatim.
  */
 
-import type { ExportProfile } from "../core/types";
+import type { CachedDocInfo, ExportHistoryEntry, ExportProfile } from "../core/types";
 import {
 	BUILTIN_PROFILES,
 	cloneProfile,
@@ -119,10 +119,7 @@ export function normalizeSettings(raw: unknown): PluginSettings {
 			? stored.activeProfileId
 			: profiles[0].id;
 
-	const state =
-		stored.state && typeof stored.state === "object" && (stored.state as ExportState).version === 1
-			? (stored.state as ExportState)
-			: createState();
+	const state = normalizeState(stored.state);
 
 	return {
 		version: SETTINGS_VERSION,
@@ -142,6 +139,56 @@ export function normalizeSettings(raw: unknown): PluginSettings {
 			skipUnchanged: stored.autoRefresh?.skipUnchanged ?? defaults.autoRefresh.skipUnchanged,
 		},
 	};
+}
+
+function normalizeState(raw: unknown): ExportState {
+	const empty = createState();
+	if (!raw || typeof raw !== "object") return empty;
+	const candidate = raw as Partial<ExportState>;
+	if (candidate.version !== 1) return empty;
+	const profiles: ExportState["profiles"] = {};
+	if (candidate.profiles && typeof candidate.profiles === "object" && !Array.isArray(candidate.profiles)) {
+		for (const [profileId, entries] of Object.entries(candidate.profiles)) {
+			if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
+			const cleanEntries: Record<string, CachedDocInfo> = {};
+			for (const [path, info] of Object.entries(entries as Record<string, unknown>)) {
+				if (!info || typeof info !== "object") continue;
+				const rec = info as Partial<CachedDocInfo>;
+				if (typeof rec.hash !== "string") continue;
+				cleanEntries[path] = {
+					hash: rec.hash,
+					mtime: typeof rec.mtime === "number" && Number.isFinite(rec.mtime) ? rec.mtime : 0,
+					size: typeof rec.size === "number" && Number.isFinite(rec.size) ? rec.size : 0,
+					words: typeof rec.words === "number" && Number.isFinite(rec.words) ? rec.words : 0,
+					tokens: typeof rec.tokens === "number" && Number.isFinite(rec.tokens) ? rec.tokens : 0,
+					lastExportedAt:
+						typeof rec.lastExportedAt === "number" && Number.isFinite(rec.lastExportedAt)
+							? rec.lastExportedAt
+							: undefined,
+				};
+			}
+			profiles[profileId] = cleanEntries;
+		}
+	}
+	const history: ExportHistoryEntry[] = [];
+	if (Array.isArray(candidate.history)) {
+		for (const item of candidate.history) {
+			if (!item || typeof item !== "object") continue;
+			const entry = item as Partial<ExportHistoryEntry>;
+			if (typeof entry.profileId !== "string" || typeof entry.generatedAt !== "string") continue;
+			history.push({
+				profileId: entry.profileId,
+				generatedAt: entry.generatedAt,
+				outputs: Array.isArray(entry.outputs) ? entry.outputs.filter((o): o is string => typeof o === "string") : [],
+				notes: typeof entry.notes === "number" ? entry.notes : 0,
+				words: typeof entry.words === "number" ? entry.words : 0,
+				tokens: typeof entry.tokens === "number" ? entry.tokens : 0,
+				parts: typeof entry.parts === "number" ? entry.parts : 0,
+				durationMs: typeof entry.durationMs === "number" ? entry.durationMs : 0,
+			});
+		}
+	}
+	return { version: 1, profiles, history };
 }
 
 /** Shrinks the persisted state so data.json never grows without bound. */

@@ -76,6 +76,13 @@ export function buildInstructions(input: InstructionsInput): string {
 		const hubs = map.hubs.slice(0, 5).map((hub) => hub.title).join(", ");
 		lines.push("", `**Start from these.** ${hubs} are the most referenced notes.`);
 	}
+	if ((map.contradictions?.length ?? 0) > 0) {
+		const samples = map.contradictions
+			.slice(0, 4)
+			.map((c) => `${c.subject} (${c.older.value} in ${c.older.title} → ${c.newer.value} in ${c.newer.title})`)
+			.join("; ");
+		lines.push("", `**Evolving figures & drift.** Several metrics or states changed across notes: ${samples}.`);
+	}
 
 	if (input.attachments && input.attachments.count > 0) {
 		lines.push(
@@ -166,6 +173,12 @@ function suggestQuestions(map: KnowledgeMap, input: InstructionsInput): string[]
 	}
 	for (const theme of map.themes.slice(0, 2)) {
 		questions.push(`Summarise the recurring theme “${theme.label}” and list the notes behind it.`);
+	}
+	if ((map.contradictions?.length ?? 0) > 0) {
+		const first = map.contradictions[0];
+		questions.push(
+			`How did **${first.subject}** evolve between **${first.older.title}** and **${first.newer.title}**?`,
+		);
 	}
 	if (map.duplicates.length > 0) {
 		questions.push("Which notes are near-duplicates, and how do they differ?");

@@ -34,7 +34,8 @@ export interface DeltaResult {
  * values *and* it was actually part of a previous export.
  */
 export function computeDelta(state: ExportState, profileId: string, docs: DocAnalysis[]): DeltaResult {
-	const previous = state.profiles[profileId] ?? {};
+	const profiles = state.profiles && typeof state.profiles === "object" ? state.profiles : {};
+	const previous = profiles[profileId] ?? {};
 	const changed: string[] = [];
 	const unchanged: string[] = [];
 	const currentPaths = new Set(docs.map((d) => d.file.path));
@@ -73,8 +74,11 @@ export interface RecordExportOptions {
 }
 
 export function recordExport(state: ExportState, options: RecordExportOptions): ExportState {
+	if (!state.profiles || typeof state.profiles !== "object") state.profiles = {};
+	if (!Array.isArray(state.history)) state.history = [];
 	const profile = state.profiles[options.profileId] ?? {};
 	const timestamp = options.generatedAt.getTime();
+	const includedSet = new Set(options.included);
 	for (const doc of options.docs) {
 		const existing = profile[doc.file.path] ?? {
 			hash: doc.hash,
@@ -89,7 +93,7 @@ export function recordExport(state: ExportState, options: RecordExportOptions): 
 			size: doc.file.size,
 			words: doc.stats.words,
 			tokens: doc.stats.tokens,
-			lastExportedAt: options.included.includes(doc.file.path) ? timestamp : existing.lastExportedAt ?? 0,
+			lastExportedAt: includedSet.has(doc.file.path) ? timestamp : existing.lastExportedAt ?? 0,
 		};
 	}
 	state.profiles[options.profileId] = profile;
@@ -110,9 +114,19 @@ export function recordExport(state: ExportState, options: RecordExportOptions): 
 
 /** Drops entries for files that no longer exist, to keep the state bounded. */
 export function pruneState(state: ExportState, existingPaths: Set<string>, maxAgeDays = 180): ExportState {
+	if (!state.profiles || typeof state.profiles !== "object") state.profiles = {};
+	if (!Array.isArray(state.history)) state.history = [];
 	const cutoff = Date.now() - maxAgeDays * 86_400_000;
 	for (const [profileId, entries] of Object.entries(state.profiles)) {
+		if (!entries || typeof entries !== "object") {
+			delete state.profiles[profileId];
+			continue;
+		}
 		for (const [path, info] of Object.entries(entries)) {
+			if (!info || typeof info !== "object") {
+				delete entries[path];
+				continue;
+			}
 			const stale = (info.mtime || 0) < cutoff && (info.lastExportedAt ?? 0) < cutoff;
 			if (!existingPaths.has(path) && stale) delete entries[path];
 		}
@@ -123,9 +137,14 @@ export function pruneState(state: ExportState, existingPaths: Set<string>, maxAg
 
 /** Total size of the stored state, for the UI (bytes of JSON, approximate). */
 export function stateSize(state: ExportState): number {
+	if (!state || typeof state !== "object") return 0;
 	let notes = 0;
-	for (const entries of Object.values(state.profiles)) notes += Object.keys(entries).length;
-	return notes * 120 + state.history.length * 200;
+	const profiles = state.profiles && typeof state.profiles === "object" ? state.profiles : {};
+	for (const entries of Object.values(profiles)) {
+		if (entries && typeof entries === "object") notes += Object.keys(entries).length;
+	}
+	const historyLen = Array.isArray(state.history) ? state.history.length : 0;
+	return notes * 120 + historyLen * 200;
 }
 
 /* -------------------------------------------------------------------------- */
