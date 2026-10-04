@@ -78,6 +78,9 @@ describe("plugin lifecycle", () => {
 		expect(ids).toContain("cancel-export");
 		expect(ids.some((id) => id.startsWith("export-profile-"))).toBe(true);
 		expect(plugin.ribbonIcons).toHaveLength(1);
+		expect(
+			Notice.messages.some((message) => /dangerous experimental crash-test/i.test(message) && /at your own risk/i.test(message)),
+		).toBe(true);
 		// Status bar is created on layout ready.
 		expect(plugin.statusBarItems.length).toBe(1);
 		expect(plugin.settingTabs.length).toBe(1);
@@ -263,6 +266,11 @@ describe("export dialog and settings tab", () => {
 		);
 		dialog.open();
 		expect(dialog.contentEl.children.length).toBeGreaterThan(3);
+		expect(
+			Array.from(dialog.contentEl.querySelectorAll?.(".cve-warning-line") ?? []).some((element) =>
+				/dangerous experimental crash-test/i.test(element.textContent ?? ""),
+			),
+		).toBe(true);
 		// The dialog is closed and the profile handed over on submit; click the
 		// export button at the end of the button row.
 		const buttons = dialog.contentEl.querySelectorAll?.("button") ?? [];
@@ -281,6 +289,11 @@ describe("export dialog and settings tab", () => {
 		const modal = new PreviewModal(fake.app as never, outcome.result!, () => undefined);
 		modal.open();
 		expect(modal.contentEl.children.length).toBeGreaterThan(2);
+		expect(
+			Array.from(modal.contentEl.querySelectorAll?.(".cve-warning-line") ?? []).some((element) =>
+				/dangerous experimental crash-test/i.test(element.textContent ?? ""),
+			),
+		).toBe(true);
 		modal.close();
 	});
 

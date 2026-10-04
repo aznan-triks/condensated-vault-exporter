@@ -3,7 +3,7 @@
 	"name": "Condensated Vault Exporter",
 	"version": "1.0.0",
 	"minAppVersion": "1.5.0",
-	"description": "Condense whole folders into AI-ready bundles: token-budgeted parts, deduplicated, summarized, with full provenance.",
+	"description": "EXPERIMENTAL CRASH-TEST: dangerous; not independently analyzed or comprehensively safety-tested. Use only on disposable vault copies, at your own risk. Condense folders into AI-ready bundles.",
 	"author": "aznan-triks",
 	"authorUrl": "https://github.com/aznan-triks",
 	"isDesktopOnly": false

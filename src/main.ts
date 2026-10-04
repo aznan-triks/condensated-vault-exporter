@@ -13,6 +13,7 @@ import { normalizeSettings, compactSettings, type PluginSettings } from "./obsid
 import { ExportSettingsTab } from "./obsidian/settingsTab";
 import { ExportRunner } from "./obsidian/runner";
 import { ExportDialog, PreviewModal, StatusModal, VaultExplorerModal, openFirstResult } from "./obsidian/modals";
+import { PROJECT_SAFETY_WARNING } from "./safetyWarning";
 
 export default class CondensatedVaultExporter extends Plugin {
 	settings!: PluginSettings;
@@ -22,6 +23,7 @@ export default class CondensatedVaultExporter extends Plugin {
 	private autoRefreshTimer: number | null = null;
 
 	async onload(): Promise<void> {
+		new Notice(`WARNING: ${PROJECT_SAFETY_WARNING}`, 10000);
 		this.settings = normalizeSettings(await this.loadData());
 		this.runner = new ExportRunner(
 			this.app,
