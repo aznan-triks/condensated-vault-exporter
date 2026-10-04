@@ -22,6 +22,7 @@ import { LIMIT_PRESETS, UNLIMITED } from "../core/pack/limits";
 import { formatCount } from "../core/util";
 import { duplicateProfile, type PluginSettings } from "./settings";
 import type CondensatedVaultExporter from "../main";
+import { PROJECT_SAFETY_WARNING } from "../safetyWarning";
 
 export class ExportSettingsTab extends PluginSettingTab {
 	private selectedId: string;
@@ -50,6 +51,7 @@ export class ExportSettingsTab extends PluginSettingTab {
 
 	private renderGeneral(root: HTMLElement): void {
 		root.createEl("h2", { text: "Plugin" });
+		root.createDiv({ cls: "cve-warning-line cve-error", text: PROJECT_SAFETY_WARNING });
 
 		new Setting(root)
 			.setName("Status bar")

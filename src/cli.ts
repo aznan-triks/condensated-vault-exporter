@@ -17,6 +17,7 @@ import { BUILTIN_PROFILES, createBuiltinProfile, createDefaultProfiles } from ".
 import { runExport } from "./core/pipeline";
 import type { ExportFormat, ExportProfile, ExportResult, SinkPort, SourceFile, VaultPort } from "./core/types";
 import { formatBytes, formatCount, normalizeVaultPath } from "./core/util";
+import { PROJECT_SAFETY_WARNING } from "./safetyWarning";
 
 const LISTED_EXTENSIONS = new Set(["md", "markdown", "mdx", "txt", "canvas", "png", "jpg", "jpeg", "gif", "webp", "svg", "pdf"]);
 
@@ -186,6 +187,8 @@ export async function runCli(
 		io.log(
 			[
 				"Condensated Vault Exporter — Headless CLI",
+				`WARNING: ${PROJECT_SAFETY_WARNING}`,
+				"Use only with disposable test data. See SAFETY.md.",
 				"",
 				"Usage:",
 				"  npm run cli -- <vault-dir> [options]",
@@ -218,6 +221,8 @@ export async function runCli(
 		io.error("Error: missing <vault-dir>. Pass --help for usage.");
 		return { exitCode: 1 };
 	}
+
+	io.error(`WARNING: ${PROJECT_SAFETY_WARNING} See SAFETY.md.`);
 
 	const base = createBuiltinProfile(opts.profileId) ?? createDefaultProfiles()[0];
 	const profile: ExportProfile = {

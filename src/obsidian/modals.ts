@@ -16,6 +16,7 @@ import { describeChanges, isStale, type ProfileStatus } from "../core/state/stat
 import { formatBytes, formatCount } from "../core/util";
 import type { ExportRunner, VaultIntelligenceReport } from "./runner";
 import type { PluginSettings } from "./settings";
+import { PROJECT_SAFETY_WARNING } from "../safetyWarning";
 
 export interface ExportDialogResult {
 	profile: ExportProfile;
@@ -62,6 +63,7 @@ export class ExportDialog extends Modal {
 		const { contentEl } = this;
 		contentEl.addClass("cve-dialog");
 		contentEl.createEl("h2", { text: "Export to an AI-ready bundle" });
+		contentEl.createDiv({ cls: "cve-warning-line cve-error", text: PROJECT_SAFETY_WARNING });
 
 		new Setting(contentEl)
 			.setName("Profile")
@@ -313,6 +315,7 @@ export class PreviewModal extends Modal {
 		const { contentEl } = this;
 		contentEl.addClass("cve-preview-modal");
 		contentEl.createEl("h2", { text: "Bundle preview" });
+		contentEl.createDiv({ cls: "cve-warning-line cve-error", text: PROJECT_SAFETY_WARNING });
 
 		const stats = contentEl.createDiv({ cls: "cve-preview-stats" });
 		this.renderStats(stats);

@@ -413,11 +413,15 @@ describe("Obsidian .canvas support, MMR summarization, active secret redaction &
 			expect(logs.some((l) => l.includes("claude-xml"))).toBe(true);
 
 			const exportLogs: string[] = [];
+			const exportWarnings: string[] = [];
 			const exportRes = await runCli([tmpDir, "--profile", "chat-context", "--redact", "--format", "html"], {
 				log: (l) => exportLogs.push(l),
-				error: () => undefined,
+				error: (l) => exportWarnings.push(l),
 			});
 			expect(exportRes.exitCode).toBe(0);
+			expect(exportWarnings.some((line) => /dangerous experimental crash-test/i.test(line) && /at your own risk/i.test(line))).toBe(
+				true,
+			);
 			expect(exportRes.result?.parts[0].content).toContain("<!DOCTYPE html>");
 			expect(exportRes.result?.parts[0].content).toContain("[REDACTED:");
 

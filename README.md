@@ -1,5 +1,10 @@
 # Condensated Vault Exporter
 
+> [!CAUTION]
+> **DANGEROUS EXPERIMENTAL CRASH-TEST — USE AT YOUR OWN RISK**
+>
+> This repository is an experimental crash-test project, not production-ready software. It has not been independently analyzed, security-audited, or comprehensively tested for safe real-world use. Automated tests exist in the repository, but they are limited and do not establish safety. Defects may corrupt, overwrite, omit, or expose vault data. Use only in a disposable test vault or on a disposable copy, with a separate verified backup; never use it on valuable, sensitive, or production data. By running it, you accept all risks. Read [SAFETY.md](SAFETY.md).
+
 **Export whole folders of Obsidian notes into merged files that a language model can actually use** — token-budgeted parts, duplicates collapsed, boilerplate removed, summaries where they help, and provenance for every sentence.
 
 You have 800 notes. NotebookLM accepts 50 sources and gives you no idea which note said what. A chat model accepts one file, and your folder is six times too big. `cat *.md` gives you 3 MB of frontmatter, repeated daily-note templates and five copies of the same meeting notes.
@@ -24,7 +29,7 @@ Vault folder ──▶ discover ──▶ analyse ──▶ condense ──▶ b
 | Navigation | None | Table of contents, corpus map, themes, hubs, glossary, suggested reading order |
 | Traceability | None | Citation ids (`S01`), per-note metadata, `.manifest.json` with content hashes |
 | Tuning | Settings soup | Profiles: one coherent recipe per destination |
-| Safety | Silent | Live preview, destination limit checks, cancellation, and a credential scan before anything is uploaded |
+| Risk controls | None | Preview, destination limit checks, cancellation, and credential scanning — useful but fallible aids, not safety guarantees |
 
 ## What comes out
 
@@ -37,6 +42,8 @@ companion parts, one complete JSON record per line, with the note's metadata,
 its links and its citation id — plus each part's index, manifest and report.
 
 ## Install
+
+**Testing only:** install and run this in a disposable test vault or a disposable copy. Do not use it with a working, valuable, sensitive, or production vault. See the [safety warning](SAFETY.md) first.
 
 **Manual** (until the plugin is in the community list):
 
@@ -369,7 +376,7 @@ npm run test       # vitest
 npm run ci         # typecheck + tests + production build
 ```
 
-The engine is covered by end-to-end tests that run the whole pipeline over a fake vault: filtering, ordering and caps; duplicate and boilerplate behaviour; chunk integrity (nothing lost, nothing repeated, limits respected); all five output formats; incremental exports; preview and cancellation; destination limit checks.
+The repository includes automated end-to-end tests that run selected pipeline scenarios over a fake vault: filtering, ordering and caps; duplicate and boilerplate behaviour; chunk integrity; output formats; incremental exports; preview and cancellation; and destination limit checks. This coverage is limited, is not an independent review or safety certification, and does not prove the project safe to use. See [SAFETY.md](SAFETY.md).
 
 ## Limitations
 

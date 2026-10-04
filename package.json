@@ -1,7 +1,7 @@
 {
   "name": "condensated-vault-exporter",
   "version": "1.0.0",
-  "description": "Condense whole Obsidian folders into AI-ready bundles: token-budgeted, deduplicated, summarized, with full provenance.",
+  "description": "EXPERIMENTAL CRASH-TEST: dangerous; not independently analyzed or comprehensively safety-tested. Use only on disposable vault copies, at your own risk. Condense Obsidian folders into AI-ready bundles.",
   "main": "main.js",
   "type": "module",
   "scripts": {
